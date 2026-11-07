@@ -3,7 +3,6 @@ from pathlib import Path
 from app.processors.base import BaseProcessor
 
 class TextFileProcessor(BaseProcessor):
-
     def __init__(self, chunk_size: int, stride: int):
         if (
             not isinstance(chunk_size, int)
@@ -19,8 +18,8 @@ class TextFileProcessor(BaseProcessor):
                 "with stride <= chunk_size"
             )
 
-            self.chunk_size = chunk_size
-            self.stride = stride
+        self.chunk_size = chunk_size
+        self.stride = stride
 
     def process(self, content: str) -> dict:
         path = Path(content)
@@ -33,7 +32,7 @@ class TextFileProcessor(BaseProcessor):
         chunks = []
 
         for start in range(0, len(text), self.stride):
-            end = min(start + chunk_size, len(text))
+            end = min(start + self.chunk_size, len(text))
 
             chunks.append({
                 "index": len(chunks),
