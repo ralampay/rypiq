@@ -32,7 +32,7 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command = "process":
+    if args.command == "process":
         result = process_content(
             medium=args.medium,
             content=args.content,

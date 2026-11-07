@@ -6,9 +6,13 @@ PROCESSORS: dict[str, type[BaseProcessor]] = {
 }
 
 def process_content(medium: str, content: str) -> dict:
-    process_class = PROCESSORS.get(medium)
+    processor_class = PROCESSORS.get(medium)
 
     if processor_class is None:
         raise ValueError(
             f"Unsupported medium: {medium}"
         )
+
+    processor = processor_class()
+
+    return processor.process(content)

@@ -25,7 +25,12 @@ dev = [
 rypiq = "app.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["app*]
+include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+  "unit: Tests isolated components",
+  "integration: Tests component interactions",
+]

@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethhod,n
+from abc import ABC, abstractmethod
 
 class BaseProcessor(ABC):
 
