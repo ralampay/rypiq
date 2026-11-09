@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from datetime import datetime, timezone
 from uuid import UUID
@@ -6,6 +8,7 @@ from app.database.repositories.base import (
     DocumentRepository,
 )
 from app.models.document import Document
+from app.models.search import SearchResult
 
 
 class ChromaDocumentRepository(DocumentRepository):
@@ -130,9 +133,6 @@ class ChromaDocumentRepository(DocumentRepository):
             for i in range(len(result["ids"]))
         ]
 
-    from app.models.search import SearchResult
-
-
     def search_by_vector(
         self,
         embedding: list[float],
@@ -146,10 +146,16 @@ class ChromaDocumentRepository(DocumentRepository):
         if limit < 1:
             raise ValueError("Limit must be positive")
 
+        kwargs = {
+            "query_embeddings": [embedding],
+            "n_results": limit,
+        }
+
+        if filters is not None:
+            kwargs["where"] = filters
+
         result = self.collection.query(
-            query_embeddings=[embedding],
-            n_results=limit,
-            where=filters,
+            **kwargs,
             include=[
                 "documents",
                 "metadatas",
@@ -160,23 +166,31 @@ class ChromaDocumentRepository(DocumentRepository):
 
         matches = []
 
-        for i, id in enumerate(result["ids"][0]):
+        for index, record_id in enumerate(result["ids"][0]):
+
             document_data = {
-                "ids": [id],
-                "documents": [result["documents"][0][i]],
-                "metadatas": [result["metadatas"][0][i]],
-                "embeddings": [result["embeddings"][0][i]],
+                "ids": [record_id],
+                "documents": [
+                    result["documents"][0][index]
+                ],
+                "metadatas": [
+                    result["metadatas"][0][index]
+                ],
+                "embeddings": [
+                    result["embeddings"][0][index]
+                ],
             }
 
             document = self._deserialize(
-                document_data, 0
+                document_data,
+                0,
             )
 
             matches.append(
                 SearchResult(
                     document=document,
                     distance=float(
-                        result["distances"][0][i]
+                        result["distances"][0][index]
                     ),
                 )
             )

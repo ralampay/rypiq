@@ -20,6 +20,10 @@ from app.database.migrations import migrate
 
 from app.context import create_context
 
+from app.embeddings.factory import get_embedding_provider
+from app.operations.search import semantic_search
+from app.operations.document import ingest_document
+
 def main():
     parser = argparse.ArgumentParser(
         prog="rypiq",
@@ -176,6 +180,67 @@ def main():
         default=5,
     )
 
+    search_parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+    )
+
+    search_parser.add_argument(
+        "--context_size",
+        type=int,
+        default=2048,
+    )
+
+    search_parser.add_argument(
+        "--gpu_layers",
+        type=int,
+        default=0,
+    )
+
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Store, embed and index a text file",
+    )
+
+    ingest_parser.add_argument(
+        "path",
+    )
+
+    ingest_parser.add_argument(
+        "--chunk_size",
+        type=int,
+        required=True,
+    )
+
+    ingest_parser.add_argument(
+        "--stride",
+        type=int,
+        required=True,
+    )
+
+    ingest_parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+    )
+
+    ingest_parser.add_argument(
+        "--context_size",
+        type=int,
+        default=2048,
+    )
+
+    ingest_parser.add_argument(
+        "--gpu_layers",
+        type=int,
+        default=0,
+    )
+
+    ingest_parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+    )
+
     args = parser.parse_args()
 
     if args.command == "process":
@@ -301,26 +366,72 @@ def main():
                 print(f"Applied migration: {version}")
 
     elif args.command == "search":
-        context = create_context()
+        try:
+            context = create_context()
 
-        embedding_provider = get_embedding_provider()
-        # Use the existing embedding provider factory
-        # from your project.
+            embedding_provider = get_embedding_provider(
+                model_path=args.model,
+                context_size=args.context_size,
+                gpu_layers=args.gpu_layers,
+            )
 
-        results = semantic_search(
-            query=args.query,
-            embedding_provider=embedding_provider,
-            repository=context.documents,
-            limit=args.limit,
-        )
+            results = semantic_search(
+                query=args.query,
+                embedding_provider=embedding_provider,
+                repository=context.documents,
+                limit=args.limit,
+            )
 
-        for result in results:
-            print({
-                "id": str(result.document.id),
-                "distance": result.distance,
-                "content": result.document.content,
-                "storage_key": result.document.storage_key,
-            })
+            print(json.dumps([
+                {
+                    "id": str(result.document.id),
+                    "distance": result.distance,
+                    "content": result.document.content,
+                    "storage_key": result.document.storage_key,
+                }
+                for result in results
+            ], indent=2))
+
+        except (
+            ValueError,
+            OSError,
+            RuntimeError,
+            KeyError,
+        ) as exc:
+            search_parser.error(str(exc))
+
+    elif args.command == "ingest":
+        try:
+            context = create_context()
+
+            documents = ingest_document(
+                path=args.path,
+                storage=context.storage,
+                repository=context.documents,
+                chunk_size=args.chunk_size,
+                stride=args.stride,
+                model_path=args.model,
+                context_size=args.context_size,
+                gpu_layers=args.gpu_layers,
+                batch_size=args.batch_size,
+            )
+
+            print(json.dumps({
+                "indexed_chunks": len(documents),
+                "storage_key": (
+                    documents[0].storage_key
+                    if documents else None
+                ),
+            }))
+
+        except (
+            ValueError,
+            OSError,
+            RuntimeError,
+            KeyError,
+        ) as exc:
+            ingest_parser.error(str(exc))
+
 
 if __name__ == "__main__":
     main()
