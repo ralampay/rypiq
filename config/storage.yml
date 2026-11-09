@@ -1,0 +1,14 @@
+default: &default
+  adapter: local
+
+development:
+  <<: *default
+  root: storage/objects/development
+
+test:
+  <<: *default
+  root: storage/objects/test
+
+production:
+  <<: *default
+  root: storage/objects/production

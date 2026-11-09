@@ -1,0 +1,16 @@
+default: &default
+  adapter: chromadb
+  collections:
+    documents: documents
+
+development:
+  <<: *default
+  path: storage/chroma/development
+
+test:
+  <<: *default
+  path: storage/chroma/test
+
+production:
+  <<: *default
+  path: storage/chroma/production

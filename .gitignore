@@ -37,5 +37,6 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-artifacts/
-models/
+/artifacts/
+/storage/
+/models/

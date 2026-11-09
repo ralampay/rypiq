@@ -14,6 +14,8 @@ dependencies = [
   "uvicorn",
   "python-dotenv",
   "llama-cpp-python",
+  "chromadb",
+  "PyYAML",
 ]
 
 [project.optional-dependencies]
