@@ -129,3 +129,56 @@ class ChromaDocumentRepository(DocumentRepository):
             self._deserialize(result, i)
             for i in range(len(result["ids"]))
         ]
+
+    from app.models.search import SearchResult
+
+
+    def search_by_vector(
+        self,
+        embedding: list[float],
+        limit: int = 10,
+        filters: dict | None = None,
+    ) -> list[SearchResult]:
+
+        if not embedding:
+            raise ValueError("Embedding cannot be empty")
+
+        if limit < 1:
+            raise ValueError("Limit must be positive")
+
+        result = self.collection.query(
+            query_embeddings=[embedding],
+            n_results=limit,
+            where=filters,
+            include=[
+                "documents",
+                "metadatas",
+                "embeddings",
+                "distances",
+            ],
+        )
+
+        matches = []
+
+        for i, id in enumerate(result["ids"][0]):
+            document_data = {
+                "ids": [id],
+                "documents": [result["documents"][0][i]],
+                "metadatas": [result["metadatas"][0][i]],
+                "embeddings": [result["embeddings"][0][i]],
+            }
+
+            document = self._deserialize(
+                document_data, 0
+            )
+
+            matches.append(
+                SearchResult(
+                    document=document,
+                    distance=float(
+                        result["distances"][0][i]
+                    ),
+                )
+            )
+
+        return matches

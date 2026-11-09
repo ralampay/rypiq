@@ -18,6 +18,8 @@ from app.storage.factory import get_storage
 from app.database.factory import get_database
 from app.database.migrations import migrate
 
+from app.context import create_context
+
 def main():
     parser = argparse.ArgumentParser(
         prog="rypiq",
@@ -158,6 +160,22 @@ def main():
         help="Filter by object key prefix",
     )
 
+    """
+    search_parser arguments
+    """
+
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Perform semantic vector search",
+    )
+
+    search_parser.add_argument("query")
+    search_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+    )
+
     args = parser.parse_args()
 
     if args.command == "process":
@@ -281,6 +299,28 @@ def main():
         else:
             for version in completed:
                 print(f"Applied migration: {version}")
+
+    elif args.command == "search":
+        context = create_context()
+
+        embedding_provider = get_embedding_provider()
+        # Use the existing embedding provider factory
+        # from your project.
+
+        results = semantic_search(
+            query=args.query,
+            embedding_provider=embedding_provider,
+            repository=context.documents,
+            limit=args.limit,
+        )
+
+        for result in results:
+            print({
+                "id": str(result.document.id),
+                "distance": result.distance,
+                "content": result.document.content,
+                "storage_key": result.document.storage_key,
+            })
 
 if __name__ == "__main__":
     main()
