@@ -13,6 +13,7 @@ dependencies = [
   "fastapi",
   "uvicorn",
   "python-dotenv",
+  "llama-cpp-python",
 ]
 
 [project.optional-dependencies]
