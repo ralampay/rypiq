@@ -1,0 +1,4 @@
+Machine learning is a subset of artificial intelligence.
+Deep learning uses neural networks to learn patterns from data.
+Retrieval augmented generation combines search with language models.
+PostgreSQL can store and search embedding vectors using pgvector.

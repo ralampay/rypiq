@@ -94,7 +94,7 @@ def test_vector_count_mismatch(sample_text_file):
     provider = Mock()
     provider.embed.return_value = []
 
-    with pytest.raises(VAlueError, match="count mismatch"):
+    with pytest.raises(ValueError, match="count mismatch"):
         embed_text_file(
             str(sample_text_file),
             chunk_size=4,
