@@ -18,6 +18,20 @@ Instructors: read the discussion, activity, and solution for each module before 
 | 4. Storage | [Read](modules/04-storage/ModuleDiscussion.md) | [Exercise](modules/04-storage/Activity.md) | [Review](modules/04-storage/ActivitySolution.md) |
 | 5. Database and integration | [Read](modules/05-database-and-integration/ModuleDiscussion.md) | [Exercise](modules/05-database-and-integration/Activity.md) | [Review](modules/05-database-and-integration/ActivitySolution.md) |
 
+## Diagram guide
+
+Each module now includes three explained architecture diagrams in plain text, an activity map, and a solution trace. These **25 text diagrams** work in terminal readers and printed handouts alongside the six Mermaid diagrams. Arrow legends distinguish construction, runtime calls, data transformations, and implementation relationships.
+
+| Module | Architectural ideas visualized |
+|---|---|
+| [1. Introduction](modules/01-introduction/ModuleDiscussion.md#architecture-diagrams-explained) | RAG stages, dependency inversion, package installation and executable dispatch |
+| [2. Text and embeddings](modules/02-text-and-embeddings/ModuleDiscussion.md#architecture-diagrams-explained) | Factory/Strategy/Adapter roles, chunk overlap, ordered embedding batches |
+| [3. File handling](modules/03-file-handling/ModuleDiscussion.md#architecture-diagrams-explained) | Loader boundaries, page/paragraph provenance, unit versus parser integration tests |
+| [4. Storage](modules/04-storage/ModuleDiscussion.md#architecture-diagrams-explained) | Contract injection, logical keys versus physical bundles, atomic publication and cleanup ownership |
+| [5. Integration](modules/05-database-and-integration/ModuleDiscussion.md#architecture-diagrams-explained) | Configuration and composition, links between original files and vector records, compensation and retrieval |
+
+Use the discussion diagrams to trace responsibilities before reading code. Ask learners to annotate the activity maps before implementing TODOs; use the solution traces during review. The diagrams introduce no extra implementation requirements and do not replace the test-first walkthroughs.
+
 ## Workshop sequence
 
 1. Introduction and project setup.

@@ -33,6 +33,31 @@ rag-workshop/
   tests/unit/test_documents.py
 ```
 
+## Exercise architecture map
+
+Arrows show **the required flow across boundaries**. TXT behavior and the chunking operation already exist; extend the loader boundary.
+
+```text
+path ---> loader selector [TODO]
+                    |
+          +---------+---------+
+          |         |         |
+         TXT       DOCX      PDF
+       supplied   [TODO]    [TODO]
+          |         |         |
+          +---------+---------+
+                    |
+             ExtractedDocument
+                    |
+        supplied process_document
+                    |
+              shared chunker
+                    |
+            chunks + provenance
+```
+
+Before coding, label where a missing file, an unsupported suffix, and a parser error should be detected. Identify which test must use a real generated document and which can supply a fake loader. Draw the source/page/paragraph labels beside the resulting chunks; do not add embedding or database calls to the readers.
+
 ## Required tasks
 
 1. Implement DocxFileLoader.load using body paragraphs with one-based paragraph numbers.

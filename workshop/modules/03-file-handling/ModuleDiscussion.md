@@ -37,6 +37,91 @@ flowchart LR
     Chunker --> Chunks[Chunks with provenance]
 ```
 
+## Architecture diagrams explained
+
+The diagrams distinguish the physical document boundary from text processing. They also show why provenance needs both a segment identifier and an offset.
+
+### Translate physical formats at the loader boundary
+
+Arrows mean **calls or returned data**, as labeled. The reader registry chooses one branch for each path.
+
+```text
+CLI path -> process_document -> get_loader(path)
+                                  |
+             +--------------------+--------------------+
+             |                    |                    |
+           .txt                 .docx                .pdf
+             |                    |                    |
+      TextFileLoader       DocxFileLoader        PdfFileLoader
+             |                    |                    |
+       UTF-8 read         python-docx API          pypdf API
+             |                    |                    |
+             +--------------------+--------------------+
+                                  |
+                           returns one shape
+                                  v
+                 ExtractedDocument(source, segments)
+                                  |
+                     process_document coordinates
+                                  v
+                   TextChunker -> chunks + metadata
+
+No loader calls an embedding provider or a database.
+```
+
+**Read the diagram:** a common return shape is what lets the operation handle several libraries uniformly. A reader is an Adapter because it translates a library-specific representation, and readers are interchangeable Strategies behind `DocumentLoader`. Extension dispatch belongs in `get_loader`, not in the CLI.
+
+**Discuss:** where does a malformed PDF fail? Inside the selected PDF adapter, where parser errors are translated into a meaningful file-format error.
+
+### Preserve location while chunking each segment
+
+The arrows show **one input segment producing chunks**. This simplified extracted document has two pages; actual parser whitespace may differ.
+
+```text
+ExtractedDocument(source="lesson.pdf")
+  |
+  +-- TextSegment(text="ABCDEFG", metadata={page: 1})
+  |      |
+  |      +--> chunk index 0: "ABCD", start 0, end 4, page 1, segment_index 0
+  |      +--> chunk index 1: "DEFG", start 3, end 7, page 1, segment_index 0
+  |
+  +-- TextSegment(text="HIJK", metadata={page: 2})
+         |
+         +--> chunk index 2: "HIJK", start 0, end 4, page 2, segment_index 1
+
+Shared chunker settings: size 4, stride 3
+Every chunk also carries source and filename.
+```
+
+**Read the diagram:** chunk indexes continue across the document, but offsets restart for each segment. Page 2's offset 0 is not the same location as page 1's offset 0. DOCX uses paragraph numbers instead of page numbers, since body paragraphs do not reliably identify Word pagination.
+
+**Discuss:** if a blank paragraph produces no chunks, should later paragraph numbers change? No; preserve source paragraph numbering so provenance still identifies the original location.
+
+### Choose the boundary a test exercises
+
+Arrows mean **the test invokes real code through the shown boundary**. Fakes replace only the boundary named in the diagram.
+
+```text
+Unit:
+  fake loader -> process_document + real chunker -> assert indexes and metadata
+
+Parser integration:
+  generated TXT / DOCX / PDF -> real loader -> assert text and provenance
+
+CLI integration:
+  installed command -> real operation -> real loader -> JSON on stdout
+
+Failure cases:
+  missing path -------> FileNotFoundError
+  denied read --------> PermissionError
+  corrupt DOCX/PDF ---> readable ValueError with parser cause
+  unsupported suffix -> ValueError from registry selection
+```
+
+**Read the diagram:** a fake-loader test proves orchestration but cannot prove that `pypdf` extracts text. A real, generated PDF is needed for that claim. An empty extraction is a successful parse with no usable text; it is distinct from a corrupt file. The later ingestion operation rejects documents with no usable text.
+
+**Discuss:** why is a blank generated PDF inadequate for an extraction test? A parser could return no text and still pass a weak test that only checks the return type.
+
 ## Files and preparation
 
 **Files introduced or replaced in this module:** unchanged files from previous modules remain in place. A test may import a newly introduced TODO module and fail; that is intentional Red, not a dependency on a later module.

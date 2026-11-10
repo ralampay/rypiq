@@ -373,6 +373,32 @@ rag-workshop process-file samples/lesson.pdf
 
 Empty extraction produces no chunks; ingestion later rejects it. Missing files and permission errors are not successful empty documents. A valid suffix with invalid bytes must fail. DOCX tables and PDF OCR remain outside the declared extraction scope; generated fixtures exercise supported content only.
 
+## Solution architecture trace
+
+Arrows show **extraction and provenance mapping** for the generated DOCX fixture. Chunk size 100 and stride 100 keep each fixture paragraph in one chunk.
+
+```text
+lesson.docx -> get_loader -> DocxFileLoader -> python-docx
+                                             |
+                                             v
+ExtractedDocument
+  source = resolved lesson.docx path
+  segments:
+    "python modules"   {paragraph: 1}
+    "database storage" {paragraph: 2}
+                       |
+                process_document
+                       v
+chunk 0: "python modules"
+  start=0, end=14, paragraph=1, segment_index=0
+chunk 1: "database storage"
+  start=0, end=16, paragraph=2, segment_index=1
+
+both chunks: source=<resolved path>, filename="lesson.docx"
+```
+
+The adapter translates Word paragraphs into application segments. The operation adds source metadata and assigns document-wide indexes; the chunker determines offsets. The PDF adapter produces page segments instead, while the same operation and chunker continue to work. This division is why adding another reader does not require a new embedding pipeline.
+
 ## Why the acceptance criteria are met
 
 - Implement DocxFileLoader.load using body paragraphs with one-based paragraph numbers. The completed code and assertions above make this behavior observable.

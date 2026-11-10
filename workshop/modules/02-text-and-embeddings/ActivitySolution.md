@@ -546,6 +546,33 @@ rag-workshop embed python
 
 Empty input yields no chunks and no provider calls. Repeated content is not deduplicated. Boolean and fractional sizes are rejected. Missing/duplicate model response indexes, inconsistent dimensions, zero vectors, NaN, and provider exceptions must not produce silently truncated output. Markdown offsets and JSON-field offsets have intentionally different source representations.
 
+## Solution architecture trace
+
+Arrows show **data transformations** for a concrete JSON example. This is a trace of the strategy/factory collaboration, not a second chunking implementation.
+
+```text
+get_processor("json", chunker, field="body")
+                |
+                v
+JsonTextProcessor receives:
+  text = '{"body": "python"}'
+  metadata = {"source": "memo"}
+                |
+                v
+selected string = "python"
+metadata = {"source": "memo", "field": "body"}
+                |
+       shared chunker, size 30, stride 30
+                v
+one TextChunk: index 0, start 0, end 6, text "python"
+                |
+       embed_chunks with FakeEmbeddingProvider
+                v
+[[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]]
+```
+
+The offsets belong to `python`, not to the surrounding JSON. The first vector coordinate counts the fixed vocabulary word `python`; the last coordinate prevents a zero vector. Factory selection and representation extraction change the input to the shared chunker without changing batching or provider validation. This output proves the fake pipeline contract, not semantic quality.
+
 ## Why the acceptance criteria are met
 
 - Implement PlainTextProcessor.process using the shared chunker. The completed code and assertions above make this behavior observable.

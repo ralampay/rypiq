@@ -50,6 +50,7 @@ sequenceDiagram
     participant CLI
     participant Context
     participant Ingest
+    participant Search
     participant Storage
     participant Loader
     participant Embedder
@@ -68,10 +69,126 @@ sequenceDiagram
     else indexing succeeds
         Ingest-->>CLI: Indexed chunks and storage key
     end
-    CLI->>Embedder: Embed query in same space
-    CLI->>Repository: Search by vector and filters
-    Repository-->>CLI: Matches with source and distance
+    CLI->>Search: semantic_search(query, context)
+    Search->>Repository: Ensure matching embedding space
+    Search->>Embedder: Embed query
+    Search->>Repository: Search by vector and filters
+    Repository-->>Search: Matches with source and distance
+    Search-->>CLI: Search results
 ```
+
+## Architecture diagrams explained
+
+The following text diagrams expand the repository and end-to-end overviews. They separate configuration decisions, dependency construction, persistent records, and failure compensation.
+
+### Resolve settings before constructing dependencies
+
+The first arrows mean **fallback precedence for each setting**. The second half shows **construction and injection**; operations receive the resulting objects.
+
+```text
+explicit CLI value
+       | if absent
+       v
+existing environment value
+       | if absent
+       v
+.env value (load_dotenv with override=False)
+       | if absent
+       v
+selected YAML environment section
+       | if absent
+       v
+documented default
+       |
+       v
+validated Settings -> create_context(settings, optional supplied provider)
+                              |
+                              +--> get_database -> backend -> migrate
+                              |                       |
+                              |                       +--> documents repository
+                              |                            + ensure_space
+                              |
+                              +--> get_storage -> storage adapter
+                              |
+                              +--> use supplied provider OR construct provider
+                              |
+                              v
+                 ApplicationContext(documents, storage, embeddings)
+                              |
+                              v
+                    ingestion / search operations
+```
+
+**Read the diagram:** construction branches show responsibilities, not execution order. The implementation obtains the provider before database setup so its identity and dimension are available for `ensure_space`. The context owns a provider it constructs, but not one supplied by its caller. Environment selection is shared by database and storage; independently chosen environments could accidentally combine test indexes with development originals.
+
+**Discuss:** where should a test replace the embedding provider? Pass the fake to `create_context`; do not patch Chroma to invent query results in the required E2E test.
+
+### Link two stores without confusing their responsibilities
+
+Arrows mean **persistence mapping or references**, not a transaction spanning both stores.
+
+```text
+                              source document
+                                /         \
+                     original bytes     extracted chunks + vectors
+                           |                      |
+                           v                      v
+                     ObjectStorage         DocumentRepository
+                           |                      |
+                           v                      v
+                    local bundle           Chroma records
+                    key = K                 id = C0, source_id = S,
+                    payload                 storage_key = K, text,
+                    checksum                vector, source metadata
+                                            id = C1, source_id = S,
+                                            storage_key = K, ...
+
+SearchResult.document.storage_key = K --get(K, destination)--> original bytes
+
+Backend: client, collections, migration bookkeeping
+Repository: record mapping, space validation, insertion, deletion, search
+```
+
+**Read the diagram:** several chunks refer to one original file. The repository translates `Document` records into Chroma inputs and converts query output back to `SearchResult` records. The operation does not unpack Chroma's nested response arrays. A future PostgreSQL adapter would change that translation and the backend lifecycle, while preserving the operation-facing contract.
+
+**Discuss:** why is a returned distance insufficient to identify the original file? Distance is a ranking value; the storage key and source metadata establish the provenance link.
+
+### Trace success and compensation separately
+
+Arrows mean **operation ordering**. This diagram starts after path and embedding-space validation. Record IDs are allocated before any repository write so partial writes can be addressed.
+
+```text
+save original -> extract/chunk -> embed -> allocate IDs -> repository.add
+      |                                                       |
+      | success establishes ownership                         +-- success
+      |                                                       |     |
+      |                                                       |     v
+      |                                                       | return documents
+      |                                                       |
+      +-- any later failure ----------------------------------+
+                         |
+                         v
+               attempt repository.delete(all allocated IDs)
+                         |
+               even if that cleanup fails
+                         v
+               attempt storage.delete(new object's key)
+                         |
+              +----------+--------------------+
+              |                               |
+       cleanup succeeds                cleanup also fails
+              |                               |
+       re-raise original           raise ExceptionGroup containing
+              error                 original + cleanup failures
+
+SEARCH
+query -> validate -> ensure same embedding space -> embed query
+      -> repository.search_by_vector(vector, filters) -> results with source
+```
+
+**Read the diagram:** before ID allocation, the cleanup ID list is empty. After a partial database write, deleting every allocated ID covers records whose write succeeded before the adapter raised. Cleanup does not roll back a previous successful ingestion. An abrupt process exit can interrupt compensation, which is why this remains a teaching example rather than a crash-recovery protocol.
+
+**Discuss:** can two models with eight-dimensional outputs share the collection automatically? No; `ensure_space` compares both identity and dimensions. Correct shape alone does not make distances meaningful.
 
 ## Files and preparation
 

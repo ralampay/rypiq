@@ -36,6 +36,93 @@ flowchart LR
     Publish --> Bundle[Payload and metadata bundle]
 ```
 
+## Architecture diagrams explained
+
+These diagrams distinguish the public object-storage contract from its private local representation. The private layout is an implementation choice, not a promise callers can depend on.
+
+### Inject a storage capability rather than a filesystem path
+
+Arrows mean **construction, injection, or method calls**, as labeled.
+
+```text
+settings: adapter="local", root=<configured directory>
+                 |
+                 v
+       get_storage(adapter, root) --constructs--> LocalStorage
+                                                       |
+                                                  supplied as
+                                                       v
+caller ----------------------------------------> ObjectStorage
+                 save / get / list / exists / delete
+                                                       |
+                                                  returns data
+                                                       v
+                        StoredObject(key, size, content_type, checksum)
+
+get(key, destination) returns the caller's chosen destination Path.
+StoredObject does not reveal the adapter's internal payload location.
+```
+
+**Read the diagram:** the simple factory owns adapter selection; the adapter owns file operations; the caller sees the Protocol's behavior. A later remote provider could download into the same destination contract. Calling `open(stored.key)` would violate this separation because a logical key is not a local path.
+
+**Discuss:** which code changes when adding a remote object store? Add an adapter and factory selection; operations using the existing contract should not need filesystem-specific changes.
+
+### Separate the logical namespace from physical bundles
+
+Arrows mean **validation and internal key mapping**. Angle-bracketed names stand for values computed at runtime.
+
+```text
+public key: "documents/lesson.pdf"
+                 |
+       validate logical key syntax
+                 |
+         SHA-256 of key string
+                 v
+trusted root/
+  <key digest>/
+    payload          <- original file bytes
+    metadata.json    <- key, size, content_type, checksum
+
+checksum = SHA-256 of payload bytes
+key digest and checksum hash DIFFERENT inputs for DIFFERENT purposes.
+```
+
+**Read the diagram:** hashing the key provides an internal address; hashing the payload records content identity. The metadata preserves the original logical key for listing. Source filenames cannot collide with the adapter's metadata filename because each object has its own bundle.
+
+**Discuss:** can `documents/a` and `documents/a/b` coexist? Yes: their distinct key digests produce separate bundles rather than a file/directory conflict.
+
+### Publish complete objects and define failure ownership
+
+Arrows mean **state transitions within save**. The example assumes the trusted, single-writer root described in the contract.
+
+```text
+validated source + unused key
+            |
+            v
+create .pending-<unique>/
+            |
+       write payload
+       calculate checksum
+       write metadata.json
+            |
+            +-- failure --> remove staging bundle --> raise original error
+            |
+       atomic rename
+            v
+publish <key digest>/
+            |
+            v
+list can now see a complete object with its metadata
+
+Existing key: reject; do not replace its bundle.
+get destination exists: reject; do not remove the existing file.
+get creates destination then fails: remove only that newly created file.
+```
+
+**Read the diagram:** listing ignores staging directories, so a published object contains both bytes and metadata. Atomic visibility does not imply power-loss durability or a transaction with a future vector index. Cleanup ownership is as important as the happy path: the operation may remove artifacts it created, not somebody else's pre-existing data.
+
+**Discuss:** what should the test assert after a simulated rename failure? No published object and no leftover staging directory.
+
 ## Files and preparation
 
 **Files introduced or replaced in this module:** unchanged files from previous modules remain in place. A test may import a newly introduced TODO module and fail; that is intentional Red, not a dependency on a later module.

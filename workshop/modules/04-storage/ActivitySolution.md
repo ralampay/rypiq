@@ -526,6 +526,29 @@ rag-workshop --env test storage:delete documents/sample.txt
 
 Listing a namespace preserves logical keys even though disk directories use hashes. A key and its child prefix can coexist. get must never overwrite an existing path or delete it on failure. Symlink checks assume a trusted root, not hostile concurrent modification. Atomic bundle publication provides visibility, not crash durability or distributed transactions.
 
+## Solution architecture trace
+
+Arrows show **public operations and their internal effects**. The key and payload digests are symbolic so the diagram does not depend on a particular filesystem location.
+
+```text
+save(source, "documents/lesson.txt", "text/plain")
+       |
+       +--> validate key and source
+       +--> write payload + metadata into staging bundle
+       +--> rename to <SHA-256 of key>/
+       |
+       v
+StoredObject(key, size, "text/plain", <SHA-256 of bytes>)
+       |
+       +--> list("documents/") returns the same metadata
+       +--> exists(key) returns True
+       +--> get(key, new_destination) copies the original bytes
+       +--> delete(key) removes its bundle and returns True
+       +--> delete(key) again returns False
+```
+
+The factory selects `LocalStorage`, but callers use only `ObjectStorage` behavior. Content type survives listing because it is persisted with the payload. Exclusive destination creation protects existing downloads; staging cleanup removes incomplete saves. These are adapter responsibilities, so callers do not duplicate safety checks or inspect bundle paths.
+
 ## Why the acceptance criteria are met
 
 - Implement the private validation/bundle helpers and all five ObjectStorage methods. The completed code and assertions above make this behavior observable.

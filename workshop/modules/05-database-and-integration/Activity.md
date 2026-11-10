@@ -39,6 +39,30 @@ rag-workshop/
   tests/e2e/test_pipeline.py
 ```
 
+## Exercise architecture map
+
+Arrows show **dependency assembly and use-case boundaries**. Required E2E tests replace only the embedding provider; storage, parsers, and Chroma remain real.
+
+```text
+monkeypatch settings ------------------+
+                                      |
+supplied reproducible fake ------------+--> create_context [TODO]
+                                      |          |
+real local storage + Chroma backend ---+          v
+                                       ApplicationContext
+                                          /           \
+                             ingest_document       semantic_search
+                                  [TODO]               [TODO]
+                                     |                    |
+                                     +---------+----------+
+                                               |
+                                   DocumentRepository [TODO]
+                                               |
+                                      real persistent Chroma
+```
+
+Before coding, draw the reference from a stored chunk back to the original object. Mark where embedding-space compatibility must be checked. For the failure test, mark the writes a failed ingestion owns and the data it must leave untouched. For persistence, identify why another CLI process provides evidence beyond constructing a second Python object.
+
 ## Required tasks
 
 1. Implement ChromaDocumentRepository against the supplied backend and record types.

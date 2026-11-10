@@ -38,6 +38,96 @@ flowchart TD
     API[Future authenticated API] --> Root
 ```
 
+## Architecture diagrams explained
+
+These plain-text diagrams remain readable in a terminal or printed handout. Each diagram states what its arrows mean; a runtime call is different from a source-code dependency. The first two diagrams preview the architecture developed across the course, not additional code to build in this module.
+
+### Follow the data through RAG
+
+Arrows below mean **data produced for the next stage**. Indexing and retrieval happen in separate use cases.
+
+```text
+INGESTION
+Original file -> Loader -> Extracted text -> Chunker -> Text chunks
+                                                        |
+                                                        v
+                                                Embedding provider
+                                                        |
+                                                        v
+                                            Chunks + numeric vectors
+                                                        |
+                                                        v
+                                                   Vector index
+
+RETRIEVAL
+Query -> Same embedding space -> Query vector -> Search vector index
+                                                        |
+                                                        v
+                                            Matching chunks + sources
+                                                        |
+                                                        v
+                                       Generation adapter (future only)
+```
+
+**Read the diagram:** a file is not an embedding, and an embedding is not an index. The loader translates file contents into text; the embedding provider turns text into vectors; the repository makes those vectors retrievable. The final generation box is outside the implemented workshop.
+
+**Discuss:** which stage changes when adding PDF support? The loader boundary changes; the query workflow should not need PDF-specific logic.
+
+### Separate construction, use, and implementation
+
+The arrows are labeled because these relationships have different meanings. This is the dependency-inversion design used by the later operations, not a complete Python import graph.
+
+```text
+                         CLI / composition root
+                         |                   |
+                constructs concrete      passes instances
+                     adapters                 |
+                         |                    v
+                         |             Application operation
+                         |                    |
+                         |                uses contract
+                         v                    v
+                   Concrete adapter ----> Interface / Protocol
+                                     satisfies
+
+Example roles developed later:
+  operation : embed_chunks
+  contract  : EmbeddingProvider
+  adapter   : FakeEmbeddingProvider or LocalEmbeddingProvider
+```
+
+**Read the diagram:** the composition root knows which concrete adapter to build. The operation knows the behavior it can request. A fake can satisfy the same contract without pretending to be a GGUF runtime. Composition replaces the supplied object; it does not require an inheritance tree for every component.
+
+**Discuss:** where should a provider-selection environment variable be read? At the construction boundary, before the provider reaches the operation.
+
+### Trace installation and the executable
+
+Arrows mean **build registration or runtime dispatch**, as labeled.
+
+```text
+pyproject.toml
+  packages.find: where = ["src"] --discovers--> src/ragworkshop/
+  scripts: rag-workshop = "ragworkshop.cli:main"
+                             |
+                       editable install
+                             v
+                active virtual environment
+                  bin/rag-workshop
+                             |
+                      imports and calls
+                             v
+                  ragworkshop.cli.main(argv)
+                             |
+                       parses "info"
+                             v
+                   stable text on stdout
+
+unit test ---------> main(["info"])
+integration test --> installed executable from another working directory
+```
+
+**Read the diagram:** the unit test covers function behavior; the integration test additionally covers installation and script registration. Neither requires a model or database. A missing executable belongs to the packaging boundary, not the future RAG pipeline.
+
 ## Files and preparation
 
 **Files introduced or replaced in this module:** unchanged files from previous modules remain in place. A test may import a newly introduced TODO module and fail; that is intentional Red, not a dependency on a later module.

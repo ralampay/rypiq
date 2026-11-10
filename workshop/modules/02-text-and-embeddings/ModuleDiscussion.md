@@ -42,6 +42,88 @@ flowchart LR
     Local[GGUF adapter] -. implements .-> Contract
 ```
 
+## Architecture diagrams explained
+
+The Mermaid overview shows the components. These text diagrams explain their distinct roles, chunk boundaries, and batch contract without requiring a diagram renderer.
+
+### Factory chooses; strategy processes; adapter translates
+
+Arrows mean **selection or method delegation**, as labeled. Only one format strategy and one embedding provider are selected for a given pipeline.
+
+```text
+format name
+    |
+    v
+get_processor --looks up--> PROCESSORS registry
+    |
+    +-- plain -----> PlainTextProcessor ----+
+    +-- markdown --> MarkdownTextProcessor -+--> shared TextChunker
+    +-- json ------> JsonTextProcessor -----+          |
+                        |                             v
+                 extracts one field               TextChunk[]
+                                                      |
+                                                      v
+                                                 embed_chunks
+                                                      |
+                                             calls embed(texts)
+                                                      v
+                                             EmbeddingProvider
+                                                /          \
+                                  supplied fake              supplied local
+                               fixed lexical vectors       llama_cpp adapter
+```
+
+**Read the diagram:** the factory answers “which object?”; the strategy answers “how is this representation processed?”; the local adapter answers “how do we call this external library?” The operation receives the provider instance rather than selecting a model inside each batch. Neither the CLI nor the JSON strategy owns the chunking loop.
+
+**Discuss:** adding another text representation should require a strategy and registration. Which existing operation can remain unchanged? `embed_chunks`, because it receives chunks rather than serialized formats.
+
+### Make stride and overlap visible
+
+Columns below are **character positions**, not time or tokens. Chunk intervals are half-open: the start is included and the end is excluded.
+
+```text
+Position:    0 1 2 3 4 5 6 7 8 9
+Text:        A B C D E F G H I J
+Chunk 0:     A B C D                [0, 4)
+Chunk 1:           D E F G          [3, 7)
+Chunk 2:                 G H I J    [6, 10)
+                   ^     ^
+                  reused characters D and G
+
+chunk_size = 4    stride = 3    overlap = 4 - 3 = 1
+starts: 0 -> 3 -> 6
+stop: chunk 2 already reaches the end; do not emit an extra "J" chunk
+```
+
+**Read the diagram:** stride controls the next start; size controls the current window length. Text offsets refer to the representation given to the chunker. JSON-field offsets do not point into JSON punctuation. Unicode code points may occupy several bytes, so byte offsets would be a different contract.
+
+**Discuss:** with size 4 and stride 4, the starts would be 0, 4, and 8. Which characters would be repeated? None.
+
+### Keep batch identity and order stable
+
+Arrows mean **ordered input/output mapping**. Vector names below are symbolic; they do not prescribe numeric values or dimensionality.
+
+```text
+chunks:   [c0, c1, c2]      batch_size = 2
+                |
+                v
+call 1:   embed([c0.text, c1.text]) --> [v0, v1]
+call 2:   embed([c2.text])          --> [v2]
+                |
+                v
+validate each response:
+  count matches batch; numbers finite; vectors nonzero;
+  every vector has provider.dimensions coordinates
+                |
+                v
+result:   [v0, v1, v2]
+paired:   c0 <-> v0, c1 <-> v1, c2 <-> v2
+```
+
+**Read the diagram:** vector length validation alone cannot catch accidental reordering. The local adapter restores the library response's index order before returning it, and the operation preserves batch order. A failed batch raises an error rather than silently producing an incomplete index.
+
+**Discuss:** if the second call returns a different dimension, should the operation return the first batch? No; the complete operation fails, allowing its caller to handle the failure consistently.
+
 ## Files and preparation
 
 **Files introduced or replaced in this module:** unchanged files from previous modules remain in place. A test may import a newly introduced TODO module and fail; that is intentional Red, not a dependency on a later module.

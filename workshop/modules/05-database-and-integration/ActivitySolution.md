@@ -733,6 +733,39 @@ rag-workshop --env test storage:list
 
 Empty queries, invalid limits, mismatched spaces, and invalid vectors fail before retrieval. Metadata filters use scalar equality and combine multiple entries with AND. Re-ingestion creates a new source, not an upsert. Cleanup failure preserves both errors; process crashes need an operational reconciliation mechanism beyond this workshop. A fresh backend in one process is not enough to prove restart persistence, so the CLI E2E uses separate processes.
 
+## Solution architecture trace
+
+Arrows show **the required deterministic E2E test across two context lifetimes**. The provider is reproducible, while parsers, object storage, and Chroma are real.
+
+```text
+context A: test settings + supplied FakeEmbeddingProvider
+       |
+       +--> initialize/migrate Chroma
+       +--> ensure space = demo-keyword-v1, dimensions = 8
+       +--> ingest fixture
+              |
+              +--> save original under key K
+              +--> extract/chunk -> fake vectors
+              +--> add records with IDs C and source_id S
+       |
+       v
+leave context A (caller retains ownership of supplied provider)
+       |
+       v
+context B: same test paths + fresh FakeEmbeddingProvider
+       |
+       +--> reopen collection; validate same embedding space
+       +--> search "python python"
+              |
+              v
+        SearchResult with stored ID C, key K, and source metadata
+
+separate temporary environment paths -> empty index and empty object storage
+installed CLI subprocess test        -> persistence across process exits
+```
+
+The repository handles Chroma's wire shape; operations handle use-case sequencing. Original bytes are verified through `storage.get`, not by reaching into the adapter root. The separate compensation tests inject a partial write and verify deletion of all allocated IDs plus the new object. Thus successful retrieval and safe failure handling have distinct executable evidence.
+
 ## Why the acceptance criteria are met
 
 - Implement ChromaDocumentRepository against the supplied backend and record types. The completed code and assertions above make this behavior observable.

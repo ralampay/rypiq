@@ -34,6 +34,25 @@ rag-workshop/
   tests/integration/test_storage.py
 ```
 
+## Exercise architecture map
+
+Arrows show **construction and requests through the public interface**. Internal storage choices must satisfy the given bundle and safety requirements; they must not leak into CLI output.
+
+```text
+supplied settings ---> get_storage [TODO] ---> LocalStorage [TODO]
+                                                      |
+                                               satisfies contract
+                                                      v
+CLI / callers ---> save | get | list | exists | delete
+                          ObjectStorage
+                                |
+                   metadata or downloaded file
+                                |
+             tmp_path integration assertions
+```
+
+Before coding, annotate the expected result for an absent key, an existing key, and an unsafe key at each relevant method. Mark which artifacts belong to the operation when a write fails. Use the supplied tests to prove that public metadata remains consistent without asserting a provider-specific payload path.
+
 ## Required tasks
 
 1. Implement the private validation/bundle helpers and all five ObjectStorage methods.

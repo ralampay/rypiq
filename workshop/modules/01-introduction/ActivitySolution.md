@@ -337,6 +337,28 @@ python -m ragworkshop.cli info
 
 An editable install does not make arbitrary directories part of a package. Missing console scripts usually mean the wrong virtual environment, a missing script table, or failure to reinstall after changing entry points. argparse should exit 2 for invalid commands; package imports should not create data directories.
 
+## Solution architecture trace
+
+Arrows show **installation followed by runtime dispatch**. This trace explains the completed behavior after the test-first implementation above.
+
+```text
+setuptools reads pyproject.toml
+       |
+       +--> finds ragworkshop under src/
+       +--> registers rag-workshop -> ragworkshop.cli:main
+                                             |
+                                      parses argv ["info"]
+                                             |
+                  +--------------------------+----------------------+
+                  |                                                 |
+stdout: "ragworkshop: modular ingestion and retrieval"          return 0
+
+unit: main(["info"]) verifies behavior
+integration: installed executable verifies behavior + packaging
+```
+
+The integration test runs from a temporary working directory, so success cannot depend on the source directory being the current directory. `Settings` remains a separate, inert configuration scaffold. No model, storage adapter, or database is initialized merely to print application information.
+
 ## Why the acceptance criteria are met
 
 - Create the directory tree, regular-package __init__.py files, virtual environment, and pyproject.toml. The completed code and assertions above make this behavior observable.

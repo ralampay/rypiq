@@ -39,6 +39,32 @@ rag-workshop/
   tests/integration/test_text_cli.py
 ```
 
+## Exercise architecture map
+
+Arrows show **required collaboration**, not the method bodies. The shared chunker and embedding operation are supplied; the representation strategies and selector are your extension points.
+
+```text
+format name ---> get_processor [TODO]
+                         |
+                selected TextProcessor
+                         |
+        +----------------+----------------+
+        |                |                |
+      plain           Markdown           JSON
+        |                |                |
+        +----------------+----------------+
+                         |
+                 shared TextChunker
+                         |
+                chunks with metadata
+                         |
+              supplied embed_chunks
+                         |
+               fake embedding provider
+```
+
+Before coding, annotate which representation the chunk offsets refer to in each branch. Then identify tests for selection, invalid inputs, metadata, and the composed fake-provider pipeline. Keep format-specific branches out of the CLI. Use the map to explain where a fourth strategy would fit without giving it a second chunking algorithm.
+
 ## Required tasks
 
 1. Implement PlainTextProcessor.process using the shared chunker.

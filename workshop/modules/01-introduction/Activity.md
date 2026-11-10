@@ -65,6 +65,25 @@ rag-workshop/
   samples/sample.txt
 ```
 
+## Exercise architecture map
+
+Arrows show **the public behavior your tests must observe**. The boxes marked TODO are your exercise boundaries, not an implementation recipe.
+
+```text
+pyproject.toml [TODO: discovery + entry point]
+               |
+        editable installation
+               v
+rag-workshop info ---> main(argv) [TODO] ---> stdout + exit status
+                          ^
+                          |
+                    direct unit test
+
+installed-script integration test ---> executable from another directory
+```
+
+Before coding, point to the boundary that would explain each failure: package cannot import, command is missing, command prints incorrect output. Write assertions at the appropriate boundary. During review, explain why a passing direct call to `main` does not prove installation works.
+
 ## Required tasks
 
 1. Create the directory tree, regular-package __init__.py files, virtual environment, and pyproject.toml.
