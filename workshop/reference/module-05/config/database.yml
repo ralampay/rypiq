@@ -1,0 +1,9 @@
+development:
+  adapter: chroma
+  path: ../.data/development/chroma
+test:
+  adapter: chroma
+  path: ../.data/test/chroma
+production:
+  adapter: chroma
+  path: ../.data/production/chroma

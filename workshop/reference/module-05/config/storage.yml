@@ -1,0 +1,9 @@
+development:
+  adapter: local
+  root: ../.data/development/objects
+test:
+  adapter: local
+  root: ../.data/test/objects
+production:
+  adapter: local
+  root: ../.data/production/objects

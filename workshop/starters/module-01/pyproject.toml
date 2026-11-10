@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ragworkshop"
+version = "0.1.0"
+description = "Modular ingestion and retrieval workshop"
+requires-python = ">=3.12"
+dependencies = ["chromadb==1.5.9", "PyYAML==6.0.3", "python-dotenv==1.2.4", "python-docx==1.2.0", "pypdf==6.12.2"]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0", "reportlab==4.4.10"]
+gguf = ["llama-cpp-python==0.3.36"]
+
+[project.scripts]
+# TODO: register rag-workshop = "ragworkshop.cli:main"
+
+[tool.setuptools.packages.find]
+# TODO: set where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --import-mode=importlib"
+markers = ["real_model: explicitly enabled local GGUF tests"]
