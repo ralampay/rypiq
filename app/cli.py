@@ -23,6 +23,7 @@ from app.context import create_context
 from app.embeddings.factory import get_embedding_provider
 from app.operations.search import semantic_search
 from app.operations.document import ingest_document
+from app.operations.inference import infer
 
 def main():
     parser = argparse.ArgumentParser(
@@ -241,9 +242,34 @@ def main():
         default=1,
     )
 
+    infer_parser = subparsers.add_parser(
+        "infer", help="Answer a query using indexed documents and a local GGUF model",
+    )
+    infer_parser.add_argument("--model", required=True, help="Local generation GGUF path")
+    infer_parser.add_argument("--query", required=True)
+    infer_parser.add_argument("--top-k", type=int, default=3, help="Number of retrieved chunks")
+    infer_parser.add_argument("--embedding-model", default=DEFAULT_MODEL,
+                              help="Embedding GGUF used to index the documents")
+    infer_parser.add_argument("--context-size", type=int, default=4096)
+    infer_parser.add_argument("--gpu-layers", type=int, default=0)
+    infer_parser.add_argument("--max-tokens", type=int, default=512)
+
+    server_parser = subparsers.add_parser("server", help="Start the FastAPI development server")
+    server_parser.add_argument("--host", default="127.0.0.1")
+    server_parser.add_argument("--port", type=int, default=8000)
+    server_parser.add_argument("--reload", action="store_true", help="Reload when Python files change")
+
     args = parser.parse_args()
 
-    if args.command == "process":
+    if args.command == "server":
+        if not 1 <= args.port <= 65535:
+            server_parser.error("port must be between 1 and 65535")
+        import uvicorn
+
+        uvicorn.run("app:create_app", factory=True, host=args.host,
+                    port=args.port, reload=args.reload)
+
+    elif args.command == "process":
         if args.medium == "text-file":
             if args.chunk_size is None or args.stride is None:
                 process_parser.error(
@@ -399,6 +425,36 @@ def main():
             KeyError,
         ) as exc:
             search_parser.error(str(exc))
+
+    elif args.command == "infer":
+        try:
+            # Fail before loading models or opening the database for invalid input.
+            if not args.query.strip():
+                raise ValueError("Query cannot be empty")
+            if args.top_k < 1:
+                raise ValueError("top-k must be positive")
+            if args.max_tokens < 1 or args.context_size <= args.max_tokens:
+                raise ValueError("Require 0 < max-tokens < context-size")
+            if not Path(args.model).expanduser().is_file():
+                raise FileNotFoundError(f"Generation model not found: {args.model}")
+            context = create_context()
+            embedding_provider = get_embedding_provider(
+                model_path=args.embedding_model,
+                gpu_layers=args.gpu_layers,
+            )
+            result = infer(
+                query=args.query,
+                model_path=args.model,
+                embedding_provider=embedding_provider,
+                repository=context.documents,
+                top_k=args.top_k,
+                context_size=args.context_size,
+                gpu_layers=args.gpu_layers,
+                max_tokens=args.max_tokens,
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
+        except (ValueError, OSError, RuntimeError, KeyError) as exc:
+            infer_parser.error(str(exc))
 
     elif args.command == "ingest":
         try:

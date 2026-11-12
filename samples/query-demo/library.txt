@@ -1,0 +1,6 @@
+Harbor Learning Center library
+The library opens Monday through Friday from 9 AM to 6 PM.
+Members may borrow up to four books for 14 days.
+Library membership costs 120 credits per year.
+The library contact is Mira Santos at the ground-floor desk.
+The library booking code is BOOK-214.

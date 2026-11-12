@@ -1,0 +1,6 @@
+Harbor Learning Center robotics workshop
+The robotics workshop meets on Wednesdays from 4 PM to 6 PM in Room 203.
+Participants build a line-following robot using sensors and motors.
+The robotics workshop costs 350 credits per person, including materials.
+The robotics contact is Ana Reyes at the workshop desk.
+The robotics booking code is BOT-731.
