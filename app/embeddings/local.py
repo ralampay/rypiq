@@ -34,11 +34,6 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             verbose=False,
         )
 
-    def close(self) -> None:
-        """Release the local model when its owning service shuts down."""
-        with self._lock:
-            self._model.close()
-
     @property
     def model_name(self) -> str:
         return self._model_name
