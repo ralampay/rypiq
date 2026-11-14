@@ -112,6 +112,8 @@ The server is available at `http://127.0.0.1:3000`, with interactive API
 documentation at `http://127.0.0.1:3000/docs`.
 Use `POST /query?top_k=3` with a JSON body such as
 `{"query": "What is this document about?"}`. No authentication is required.
+CORS allows browser clients from any origin to send JSON POST requests, including
+preflight OPTIONS requests. Cross-origin credentials are not enabled.
 
 With the server running, test the endpoint from another terminal:
 

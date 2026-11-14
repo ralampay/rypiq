@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from threading import Lock
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.context import create_context
 from app.embeddings.factory import get_embedding_provider
@@ -30,6 +31,12 @@ def create_app() -> FastAPI:
             provider.close()
 
     app = FastAPI(title="Rypiq API", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["POST"],
+        allow_headers=["Content-Type"],
+    )
     from app.routes import register_routes
 
     register_routes(app)

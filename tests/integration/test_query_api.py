@@ -41,6 +41,37 @@ def api_setup(tmp_path, monkeypatch):
 
 
 @pytest.mark.integration
+def test_query_cors_preflight(api_setup):
+    application, operation, *_ = api_setup
+    with TestClient(application) as client:
+        response = client.options("/query?top_k=3", headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        })
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert "content-type" in response.headers["access-control-allow-headers"].lower()
+    operation.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("status", [200, 422, 503])
+def test_query_cors_response(api_setup, status):
+    application, operation, *_ = api_setup
+    if status == 503:
+        operation.side_effect = RuntimeError("Inference unavailable")
+    body = {} if status == 422 else {"query": "question"}
+    with TestClient(application) as client:
+        response = client.post("/query", json=body,
+                               headers={"Origin": "http://localhost:5173"})
+    assert response.status_code == status
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in response.headers
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize("suffix,expected_k", [("", 3), ("?top_k=5", 5)])
 def test_query_uses_dotenv_and_passes_top_k(api_setup, suffix, expected_k):
     application, operation, provider, repository, model, factory = api_setup
