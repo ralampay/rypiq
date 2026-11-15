@@ -45,6 +45,11 @@ def main():
         help="Apply pending database migrations",
     )
 
+    subparsers.add_parser(
+        "db:upgrade",
+        help="Creates migration files from schema changes"
+    )
+
     process_parser = subparsers.add_parser(
         "process",
         help="Process content",
