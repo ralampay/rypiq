@@ -16,6 +16,7 @@ dependencies = [
   "llama-cpp-python",
   "chromadb",
   "PyYAML",
+  "sqlalchemy",
 ]
 
 [project.optional-dependencies]

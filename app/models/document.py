@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
+from app.database.schema import persistent
 
 
 def utc_now() -> datetime:
@@ -8,6 +9,7 @@ def utc_now() -> datetime:
 
 
 @dataclass
+@persistent("documents")
 class Document:
     content: str
     embedding: list[float]
