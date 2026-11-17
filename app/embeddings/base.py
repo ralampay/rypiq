@@ -30,3 +30,6 @@ class EmbeddingProvider(ABC):
             - All vectors have consistent dimensions.
         """
         raise NotImplementedError
+
+    def close(self) -> None:
+        """Release owned resources, if any; stateless providers need no cleanup."""

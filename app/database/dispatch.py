@@ -7,9 +7,13 @@ METHODS = {
 }
 
 
-def dispatch(args, service):
+def method_for(command: str) -> str:
     try:
-        method = METHODS[args.command]
+        return METHODS[command]
     except KeyError:
-        raise ValueError(f'Unknown database command {args.command}') from None
-    return getattr(service, method)()
+        raise ValueError(f'Unknown database command {command}') from None
+
+
+def dispatch(args, service):
+    """Compatibility adapter for callers holding a parsed namespace."""
+    return getattr(service, method_for(args.command))()

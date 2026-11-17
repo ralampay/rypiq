@@ -1,9 +1,10 @@
 from types import SimpleNamespace
+from contextlib import contextmanager
 
 import pytest
 
 from app import context as context_module
-from app import cli
+from app import cli, application
 
 
 def test_context_owns_and_releases_database(monkeypatch):
@@ -31,11 +32,16 @@ def test_context_setup_failure_releases_database(monkeypatch):
 
 def test_search_cli_failure_releases_database(monkeypatch):
     calls = []
-    context = SimpleNamespace(documents='repository', close=lambda: calls.append('closed'))
-    monkeypatch.setattr(cli, 'create_context', lambda: context)
+    context = context_module.ApplicationContext(documents='repository', storage='storage',
+        database=SimpleNamespace(close=lambda: calls.append('closed')))
+    @contextmanager
+    def open_repository():
+        with context:
+            yield context.documents
+    monkeypatch.setattr(application, 'open_document_repository', open_repository)
     def fail(**kwargs):
         raise ValueError('bad model')
-    monkeypatch.setattr(cli, 'get_embedding_provider', fail)
+    monkeypatch.setattr(application, 'get_embedding_provider', fail)
     monkeypatch.setattr('sys.argv', ['rypiq', 'search', 'hello'])
     with pytest.raises(SystemExit):
         cli.main()

@@ -2,7 +2,7 @@
 
 from app.embeddings.base import EmbeddingProvider
 from app.embeddings.local import LocalEmbeddingProvider
-from app.operations.embedding import DEFAULT_MODEL
+from app.embeddings.config import DEFAULT_MODEL
 
 
 def get_embedding_provider(

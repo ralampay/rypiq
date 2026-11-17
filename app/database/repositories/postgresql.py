@@ -108,3 +108,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
                 raise ValueError('Stored embedding has undefined cosine distance')
             matches.append(SearchResult(self._document(values), float(score)))
         return matches
+
+    def close(self) -> None:
+        """Release the pool when this repository was obtained as an owned resource."""
+        self.engine.dispose()

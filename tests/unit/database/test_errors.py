@@ -17,7 +17,7 @@ def test_password_characters_survive_url_construction():
 def test_driver_errors_are_not_printed_with_credentials(monkeypatch, capsys):
     def fail(args):
         raise sa.exc.OperationalError('secret SQL', {}, Exception('fake%@:secret'))
-    monkeypatch.setattr(cli.database_commands, 'run_database_command', fail)
+    monkeypatch.setattr(cli, 'execute', fail)
     monkeypatch.setattr('sys.argv', ['rypiq', 'db:migrate'])
     with pytest.raises(SystemExit) as error:
         cli.main()

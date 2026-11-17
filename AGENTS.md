@@ -4,7 +4,7 @@
 
 RyPiq is a Python CLI and library for processing text, generating embeddings, storing original files, and searching documents with PostgreSQL and pgvector. Keep domain logic independent of entrypoints.
 
-Read [code conventions](docs/CODE_CONVENTIONS.md) before choosing a new abstraction. Use [README.md](README.md) for setup and command contracts. Inspect nearby code, tests, and any more-specific instructions before editing. Explicit task requirements take precedence over these repository defaults.
+Read [code conventions](docs/CODE_CONVENTIONS.md) before choosing a new abstraction. Use [README.md](README.md) for setup and command contracts and [execution paths](docs/EXECUTION_PATHS.md) for the CLI and direct Python call chains. Inspect nearby code, tests, and any more-specific instructions before editing. Explicit task requirements take precedence over these repository defaults.
 
 ## Architecture
 

@@ -57,49 +57,41 @@ class LocalStorage(ObjectStorage):
             raise FileExistsError(key)
 
         digest = hashlib.sha256()
-        temp_name = None
-
+        staged = None
+        failure = None
         try:
             with tempfile.NamedTemporaryFile(
-                dir=destination.parent,
-                delete=False,
+                dir=destination.parent, prefix='.rypiq-', delete=False,
             ) as temp:
-                temp_name = temp.name
-
-                with source.open("rb") as reader:
+                staged = Path(temp.name)
+                with source.open('rb') as reader:
                     while chunk := reader.read(1024 * 1024):
                         temp.write(chunk)
                         digest.update(chunk)
-
-            # Exclusive creation avoids silently overwriting
-            # an existing object with the same key.
-            with open(destination, "xb") as output:
-                with open(temp_name, "rb") as reader:
-                    shutil.copyfileobj(reader, output)
-
-        except Exception:
-            if destination.exists():
-                # Never delete a pre-existing object on failure.
-                # The temp file is cleaned up below.
-                pass
+            stat = staged.stat()
+            result = StoredObject(
+                key=key, size=stat.st_size, content_type=content_type,
+                checksum=digest.hexdigest(),
+                created_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+            )
+            # Commit point: expose complete data without replacing any writer's key.
+            # Requires same-filesystem, atomic exclusive hard-link support.
+            os.link(staged, destination)
+            return result
+        except BaseException as exc:
+            failure = exc
             raise
-
         finally:
-            if temp_name is not None:
-                Path(temp_name).unlink(missing_ok=True)
-
-        stat = destination.stat()
-
-        return StoredObject(
-            key=key,
-            size=stat.st_size,
-            content_type=content_type,
-            checksum=digest.hexdigest(),
-            created_at=datetime.fromtimestamp(
-                stat.st_mtime,
-                tz=timezone.utc,
-            ),
-        )
+            if staged is not None:
+                try:
+                    staged.unlink(missing_ok=True)
+                except OSError:
+                    if failure is not None:
+                        failure.add_note('Could not remove the owned staging file.')
+                    else:
+                        raise RuntimeError(
+                            'Object was published, but staging-file cleanup failed'
+                        ) from None
 
     def get(
         self,

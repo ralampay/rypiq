@@ -10,7 +10,7 @@ from app.models.search import SearchResult
 QUERY_PREFIX = "task: search result | query: "
 
 
-def semantic_search(
+def _search(
     query: str,
     embedding_provider: EmbeddingProvider,
     repository: DocumentRepository,
@@ -55,3 +55,22 @@ def semantic_search(
         embedding=vector,
         limit=limit,
     )
+
+
+class SearchDocuments:
+    def __init__(self, *, query: str, embedding_provider: EmbeddingProvider,
+                 repository: DocumentRepository, limit: int = 10) -> None:
+        self.query = query
+        self.embedding_provider = embedding_provider
+        self.repository = repository
+        self.limit = limit
+
+    def execute(self) -> list[SearchResult]:
+        return _search(self.query, self.embedding_provider, self.repository, self.limit)
+
+
+def semantic_search(query: str, embedding_provider: EmbeddingProvider,
+                    repository: DocumentRepository, limit: int = 10) -> list[SearchResult]:
+    """Compatibility wrapper; dependencies are still owned by the caller."""
+    return SearchDocuments(query=query, embedding_provider=embedding_provider,
+                           repository=repository, limit=limit).execute()

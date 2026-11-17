@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from app import cli
+from app import cli, application
 
 
 @pytest.mark.integration
@@ -22,7 +22,7 @@ def test_embed_cli_dispatch(
         }
 
     monkeypatch.setattr(
-        cli, "embed_text_file", fake_embed
+        application, "embed_file", fake_embed
     )
 
     monkeypatch.setattr(
@@ -55,8 +55,8 @@ def test_embed_cli_output(
     monkeypatch, capsys, sample_text_file, tmp_path
 ):
     monkeypatch.setattr(
-        cli,
-        "embed_text_file",
+        application,
+        "embed_file",
         lambda **kwargs: {
             "model": "fake.gguf",
             "chunks": [],

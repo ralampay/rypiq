@@ -1,112 +1,69 @@
-"""Embed chunks extracted using text-file processing"""
-
+"""Embedding workflows with caller-supplied providers and no configuration lookup."""
+import math
 from collections.abc import Callable
 
-from app.embeddings.local import LocalEmbeddingProvider
+from app.embeddings.base import EmbeddingProvider
+from app.embeddings.config import DEFAULT_MODEL
 from app.operations.text_file import process_text_file
 
-DEFAULT_MODEL = "models/embeddinggemma-300m-Q4_0.gguf"
-DEFAULT_PREFIX = "title: none | text: "
+DEFAULT_PREFIX = 'title: none | text: '
 
-def embed_text_file(
-    path: str,
-    chunk_size: int,
-    stride: int,
-    model_path: str = DEFAULT_MODEL,
-    context_size: int = 2048,
-    gpu_layers: int = 0,
-    batch_size: int = 1,
-    provider_factory: Callable | None = None,
-) -> dict:
-    """Extract, chunk and embed a UTF-8 text file."""
 
-    if (
-        not isinstance(batch_size, int)
-        or isinstance(batch_size, bool)
-        or batch_size < 1
-    ):
-        raise ValueError(
-            "batch_size must be a positive integer"
-        )
+def prepare_text_file(path: str, chunk_size: int, stride: int, batch_size: int) -> dict:
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValueError('batch_size must be a positive integer')
+    document = process_text_file(path=path, chunk_size=chunk_size, stride=stride)
+    if not any(chunk['text'].strip() for chunk in document['chunks']):
+        raise ValueError('File has no nonempty text chunks')
+    return document
 
-    if context_size < 1:
-        raise ValueError(
-            "context_size must be positive"
-        )
 
-    # Reuse the existing text-file operation.
-    document = process_text_file(
-        path=path,
-        chunk_size=chunk_size,
-        stride=stride,
-    )
-
-    # Skip chunks containing only whitespace.
-    chunks = [
-        chunk
-        for chunk in document["chunks"]
-        if chunk["text"].strip()
-    ]
-
-    if not chunks:
-        raise ValueError(
-            "File has no nonempty text chunks"
-        )
-
-    factory = (
-        provider_factory
-        if provider_factory is not None
-        else LocalEmbeddingProvider
-    )
-
-    # Load the GGUF model once for this operation
-    provider = factory(
-        model_path=model_path,
-        context_size=context_size,
-        gpu_layers=gpu_layers,
-    )
-
+def embed_chunks(document: dict, provider: EmbeddingProvider, batch_size: int) -> dict:
+    """Embed a prepared document; never create or close the borrowed provider."""
+    chunks = [chunk for chunk in document['chunks'] if chunk['text'].strip()]
     records = []
     dimensions = None
-
     for start in range(0, len(chunks), batch_size):
         batch = chunks[start:start + batch_size]
-
-        # EmbeddingGemma document formatting
-        # TODO: abstract this later on for other gguf embedding models
-        inputs = [
-            DEFAULT_PREFIX + chunk["text"]
-            for chunk in batch
-        ]
-
-        vectors = provider.embed(inputs)
-
+        vectors = provider.embed([DEFAULT_PREFIX + chunk['text'] for chunk in batch])
         if len(vectors) != len(batch):
-            raise ValueError("Embedding count mismatch")
-
-        for chunk, vector in zip(
-            batch, vectors, strict=True
-        ):
+            raise ValueError('Embedding count mismatch')
+        for chunk, vector in zip(batch, vectors, strict=True):
             if not vector:
-                raise ValueError("Empty embedding vector")
-
+                raise ValueError('Empty embedding vector')
+            if any(isinstance(value, bool) or not isinstance(value, (int, float))
+                   or not math.isfinite(value) for value in vector):
+                raise ValueError('Embedding contains invalid values')
             if dimensions is None:
                 dimensions = len(vector)
-
             elif len(vector) != dimensions:
-                raise ValueError(
-                    "Inconsistent vector dimensions"
-                )
+                raise ValueError('Inconsistent vector dimensions')
+            records.append({**chunk, 'embedding': vector})
+    return {**document, 'model': provider.model_name, 'dimensions': dimensions,
+            'embedded_chunk_count': len(records), 'chunks': records}
 
-            records.append({
-                **chunk,
-                "embedding": vector,
-            })
 
-    return {
-        **document,
-        "model": provider.model_name,
-        "dimensions": dimensions,
-        "embedded_chunk_count": len(records),
-        "chunks": records,
-    }
+class EmbedTextFile:
+    def __init__(self, *, path: str, chunk_size: int, stride: int,
+                 embedding_provider: EmbeddingProvider, batch_size: int = 1) -> None:
+        self.path = path
+        self.chunk_size = chunk_size
+        self.stride = stride
+        self.provider = embedding_provider
+        self.batch_size = batch_size
+
+    def execute(self) -> dict:
+        document = prepare_text_file(self.path, self.chunk_size, self.stride, self.batch_size)
+        return embed_chunks(document, self.provider, self.batch_size)
+
+
+def embed_text_file(path: str, chunk_size: int, stride: int,
+                    model_path: str = DEFAULT_MODEL, context_size: int = 2048,
+                    gpu_layers: int = 0, batch_size: int = 1,
+                    provider_factory: Callable | None = None) -> dict:
+    """Compatibility entrypoint that owns provider construction and cleanup."""
+    from app.application import embed_file
+    return embed_file(path=path, chunk_size=chunk_size, stride=stride,
+                      model_path=model_path, context_size=context_size,
+                      gpu_layers=gpu_layers, batch_size=batch_size,
+                      provider_factory=provider_factory)

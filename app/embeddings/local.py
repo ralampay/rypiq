@@ -94,3 +94,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             vectors.append(vector)
 
         return vectors
+
+    def close(self) -> None:
+        with self._lock:
+            self._model.close()

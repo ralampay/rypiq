@@ -78,3 +78,5 @@ Without that test URL, database integrations are skipped. Model integration test
 ## Contributing and coding agents
 
 Read [AGENTS.md](AGENTS.md) for agent instructions and the [code conventions](docs/CODE_CONVENTIONS.md) for command objects, operation functions, factories, repositories, resource ownership, and testing guidance.
+
+See [CLI and backend execution paths](docs/EXECUTION_PATHS.md) for configured Python calls, injected commands, resource ownership, and the branch-coverage command.

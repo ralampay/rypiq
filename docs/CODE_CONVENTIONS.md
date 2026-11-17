@@ -12,7 +12,7 @@ The reference is Cloudband's Rails template at commit `6c4b0f7db504bee0f560e1661
 
 | Responsibility | Preferred pattern | Decision rule / current example |
 | --- | --- | --- |
-| Coordinate a multi-step or stateful business use case | Command object | Prefer a descriptive class with `execute()` for new workflows that benefit from named inputs, dependencies, or intermediate steps. Existing `ingest_document()` remains a supported function. |
+| Coordinate a multi-step or stateful business use case | Command object | Prefer a descriptive class with `execute()` for new workflows that benefit from named inputs, dependencies, or intermediate steps. Use `IngestDocument`, `EmbedTextFile`, or `SearchDocuments`; existing operation functions remain compatibility entrypoints. |
 | Perform a small stateless operation | Function | Retain simple calls such as `process_text_file()`; do not wrap every function in a class. |
 | Select and construct an implementation | Factory | Reuse `get_database()`, `get_storage()`, and `get_embedding_provider()`. Even a single supported backend can have a factory as its composition boundary. |
 | Read/write persistent domain records | Repository | `DocumentRepository` defines the contract; `PostgreSQLDocumentRepository` implements queries and serialization. |
@@ -184,17 +184,18 @@ Object storage and PostgreSQL do not share a transaction. Multi-system operation
 
 | Concern | Inspect these files |
 | --- | --- |
-| CLI parsing, presentation, error boundary | [CLI](../app/cli.py) |
+| CLI parsing, presentation, error boundary | [CLI](../app/cli.py), [parser](../app/cli_parser.py), [handlers](../app/cli_handlers.py) |
 | Database command facade and name dispatch | [commands](../app/database/commands.py), [dispatch](../app/database/dispatch.py) |
+| Configured Python entrypoints | [application facade](../app/application.py), [database-only context](../app/db.py) |
 | Resource composition and cleanup | [application context](../app/context.py), [context tests](../tests/unit/operations/test_context.py) |
 | Factory construction | [database](../app/database/factory.py), [storage](../app/storage/factory.py), [embeddings](../app/embeddings/factory.py) |
-| Workflow functions | [ingestion](../app/operations/document.py), [search](../app/operations/search.py) |
+| Commands and compatibility functions | [ingestion](../app/operations/document.py), [search](../app/operations/search.py) |
 | Small operations and handler selection | [text-file processing](../app/operations/text_file.py), [processor dispatch](../app/operations/process.py) |
 | Repository contract and SQL implementation | [contract](../app/database/repositories/base.py), [PostgreSQL implementation](../app/database/repositories/postgresql.py) |
 | Explicit schema and domain model | [schema](../app/database/schema.py), [Document](../app/models/document.py) |
 | Unit and integration testing examples | [search unit tests](../tests/unit/operations/test_search_operation.py), [pipeline integrations](../tests/integration/database/test_pipeline.py) |
 
-Inspect these implementations before changing them. They establish current public behavior; the preferred command-object style is a convention for suitable new work, not a claim that these workflows already use command classes.
+Inspect these implementations before changing them. They establish current public behavior; the embedding, ingestion, and search workflows now expose injected command classes alongside supported function entrypoints. See [execution paths](EXECUTION_PATHS.md) for the current CLI and Python call chains.
 
 ## Testing and completion
 
