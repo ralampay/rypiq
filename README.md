@@ -43,7 +43,201 @@ Ingestion and search use the application's model path. Optional `--model` suppli
 
 `config/storage.yml` controls original-file storage. `STORAGE_ENV` defaults to `DATABASE_ENV`; `RYPIQ_STORAGE_CONFIG` overrides its configuration path. Storage paths remain independent of database reset.
 
-Use `rypiq --help` for text processing, embedding, and object-storage commands. Library callers should use `with create_context() as context:` from `app.context` or `with get_database() as database:` from `app.database.factory` to release connection pools reliably.
+Library callers should use `with create_context() as context:` from `app.context` or `with get_database() as database:` from `app.database.factory` to release connection pools reliably.
+
+## CLI reference
+
+Commands return JSON; failures exit nonzero with a diagnostic. Use `rypiq --help` to list commands and `rypiq COMMAND --help` for individual usage. `-h` is also supported. Run the examples from the project root and replace `APPLICATION_UUID` with an existing application's UUID. Flag spelling matters: chunking and local runtime flags use underscores, while application and chat flags use hyphens.
+
+- [Database](#database-commands)
+- [Applications](#application-commands)
+- [Text processing](#text-processing)
+- [Embeddings](#embedding-commands)
+- [Documents and search](#document-ingestion-and-search)
+- [Inference](#inference-commands)
+- [Model discovery](#model-discovery)
+- [Object storage](#object-storage)
+
+### Database commands
+
+These commands take no positional arguments or command-specific flags. They use the selected database configuration; see the [database setup guide](docs/DATABASE.md#setup-and-configuration) for environment variables and permissions.
+
+| Command | Behavior |
+| --- | --- |
+| `rypiq db:create` | Create the database if missing, enable pgvector, and initialize the fixed tables. |
+| `rypiq db:migrate` | Create missing tables, upgrade the recognized legacy schema, and reject incompatible schemas. |
+| `rypiq db:drop` | Delete the configured database and all its contents. |
+| `rypiq db:reset` | Delete and recreate the configured database and fixed tables. |
+
+**`db:drop` and `db:reset` delete database data, including unrelated tables in that database.** Original files in object storage remain intact.
+
+```sh
+rypiq db:create
+rypiq db:migrate
+```
+
+### Application commands
+
+An application selects a provider and embedding/inference models. Create and update accept local GGUF paths, remote model IDs, or compatible `@catalog-alias` references. See [provider configuration](docs/PROVIDERS.md#application-provider-configuration) for endpoints and credential environment references.
+
+| Command | Required arguments | Purpose |
+| --- | --- | --- |
+| `rypiq application:create` | `--name NAME --embedding-model MODEL` | Create an application and generate its API key. |
+| `rypiq application:list` | None | List applications with pagination. |
+| `rypiq application:show APPLICATION_UUID` | Application UUID positional argument | Show one application's details. |
+| `rypiq application:update APPLICATION_UUID` | Application UUID positional argument | Update supplied fields; omitted fields remain unchanged. |
+
+Creation returns the generated API key. List, show, and update omit it. There is no application deletion CLI command.
+
+| Create/update option | Creation default or requirement | Update behavior |
+| --- | --- | --- |
+| `--name NAME` | Required | Replace the name. |
+| `--embedding-model MODEL` | Required | Replace the embedding model. |
+| `--embedding-size N` | Database configuration's `dimensions` (normally `768`); range `1–16000` | Replace the embedding size. |
+| `--provision-type TYPE` | `local`; choices: `local`, `openai`, `llama-server` | Replace the provider. |
+| `--inference-model MODEL` | Unset | Set the inference model. |
+| `--data JSON` | `{}`; must be a JSON object | Replace the entire data object, not a partial merge. |
+| `--clear-inference-model` | Not available on create | Clear the inference model; mutually exclusive with `--inference-model`. |
+
+Embedding model, size, provider, and embedding preprocessing changes are rejected when the application already has documents. See [database documentation](docs/DATABASE.md) for persistence rules.
+
+| List option | Default | Meaning |
+| --- | --- | --- |
+| `--limit N` | `100` | Maximum applications returned; positive integer. |
+| `--offset N` | `0` | Applications to skip; nonnegative integer. |
+
+```sh
+rypiq application:create --name 'My application' \
+  --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768 \
+  --inference-model models/your-chat-model.gguf --data '{"purpose":"local search"}'
+rypiq application:list --limit 20 --offset 0
+rypiq application:show APPLICATION_UUID
+rypiq application:update APPLICATION_UUID --name 'Renamed application'
+rypiq application:update APPLICATION_UUID --clear-inference-model
+```
+
+Replace `models/your-chat-model.gguf` with your existing inference model. Models are not downloaded by these commands.
+
+### Text processing
+
+| Syntax | Positional arguments | Behavior |
+| --- | --- | --- |
+| `rypiq process text CONTENT` | Literal text, quoted if it contains spaces | Return text, character count, and word count. |
+| `rypiq process text-file PATH --chunk_size N --stride N` | UTF-8 `.txt` file path | Split a file into chunks and return their text and offsets. |
+
+| Option | Requirement | Meaning |
+| --- | --- | --- |
+| `--chunk_size N` | Required for `text-file`; rejected for `text` | Maximum characters per chunk; positive integer. |
+| `--stride N` | Required for `text-file`; rejected for `text` | Characters to advance; positive integer no greater than chunk size. |
+
+```sh
+rypiq process text 'Hello world'
+rypiq process text-file samples/sample.txt --chunk_size 500 --stride 400
+```
+
+### Embedding commands
+
+`rypiq embed text-file PATH --chunk_size N --stride N` embeds a UTF-8 `.txt` file with a local model. It requires neither an application nor a database and does not store documents.
+
+| Option | Default or requirement | Meaning |
+| --- | --- | --- |
+| `--chunk_size N` | Required | Maximum characters per chunk; positive integer. |
+| `--stride N` | Required | Positive character advance, no greater than chunk size. |
+| `--model MODEL` | `models/embeddinggemma-300m-Q4_0.gguf` | Local GGUF path or embedding-capable local `@catalog-alias`. |
+| `--context_size N` | Catalog setting, otherwise `2048` | Positive local model context size. |
+| `--gpu_layers N` | Catalog setting, otherwise `0` | Local GPU layer count; `-1` requests all layers. |
+| `--batch_size N` | `1` | Positive number of chunks per embedding request. |
+| `--output PATH` | Unset: print JSON to stdout | Write the complete JSON result to a file instead; replaces an existing file. |
+
+```sh
+rypiq embed text-file samples/sample.txt --chunk_size 500 --stride 400 \
+  --batch_size 2 --output embeddings.json
+```
+
+### Document ingestion and search
+
+| Syntax | Positional argument | Behavior |
+| --- | --- | --- |
+| `rypiq ingest PATH --application-id APPLICATION_UUID --chunk_size N --stride N` | UTF-8 `.txt` file path | Save the original file, embed its chunks, and persist application-owned documents. |
+| `rypiq search QUERY --application-id APPLICATION_UUID` | Search text, quoted if it contains spaces | Return matching documents from that application with cosine distances; lower is closer. |
+
+Both commands require the database and use the application's configured provider (`local`, `openai`, or `llama-server`). Only ingestion requires object storage.
+
+| Option | Applies to | Default or requirement |
+| --- | --- | --- |
+| `--application-id UUID` | Both | Required; selects the application and its models. |
+| `--model MODEL` | Both | Unset: use the application's model. Local path or local catalog alias override only; the resolved filename must match the application's model. |
+| `--context_size N` | Both | Saved application/catalog setting, otherwise `2048`; positive local runtime override. |
+| `--gpu_layers N` | Both | Saved application/catalog setting, otherwise `0`; local runtime override, integer at least `-1`. |
+| `--chunk_size N` | Ingest | Required; positive maximum characters per chunk. |
+| `--stride N` | Ingest | Required; positive character advance no greater than chunk size. |
+| `--batch_size N` | Ingest | `1`; positive number of chunks per embedding request. |
+| `--limit N` | Search | `5`; positive maximum number of matches. |
+
+Explicit `--model`, `--context_size`, and `--gpu_layers` overrides are rejected for remote applications. Ingestion returns `indexed_chunks` and `storage_key`; search returns a JSON array with document IDs, distances, content, and storage keys.
+
+```sh
+rypiq ingest samples/sample.txt --application-id APPLICATION_UUID --chunk_size 500 --stride 400
+rypiq search 'What is this document about?' --application-id APPLICATION_UUID --limit 5
+```
+
+### Inference commands
+
+`rypiq chat PROMPT` performs non-streaming text inference. The prompt is a positional argument. Choose exactly one of `--application-id` and `--model`.
+
+| Option | Default or requirement | Meaning |
+| --- | --- | --- |
+| `--application-id UUID` | Required unless `--model` is supplied | Use the application's configured inference model and provider. |
+| `--model MODEL` | Required unless `--application-id` is supplied | Standalone local GGUF path or inference-capable local `@catalog-alias`; no database required. |
+| `--system TEXT` | Unset | Prepend a system message. |
+| `--max-tokens N` | `512` | Positive maximum output token count. |
+| `--temperature N` | Unset: use the provider's default | Sampling temperature, finite number from `0` to `2`. |
+
+An application must have an inference model configured to use `--application-id`. Chat returns text, model, finish reason, and optional usage; it does not retrieve documents or maintain conversation history.
+
+```sh
+rypiq chat 'Say hello.' --application-id APPLICATION_UUID --system 'Be concise.' --max-tokens 128
+rypiq chat 'Say hello.' --model models/your-chat-model.gguf --temperature 0.5
+```
+
+For reuse across Python calls, see [local model sessions](docs/PROVIDERS.md#reusing-local-models). Separate CLI invocations do not share loaded models.
+
+### Model discovery
+
+`rypiq models:list` lists configured catalog entries, not every model file on disk. Local entries report file availability; listing does not load model weights.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--application-id UUID` | Unset | Filter catalog entries to the application's provider; requires a database lookup. |
+| `--discover` | Disabled | Requires `--application-id`; query configured remote endpoints and merge discovered models with catalog entries. For local applications, only the filtered catalog is returned. |
+
+Without either option, listing reads only the catalog and needs no database. Discovery requires the remote endpoint and credential configuration; see the [model provider guide](docs/PROVIDERS.md).
+
+```sh
+rypiq models:list
+rypiq models:list --application-id APPLICATION_UUID
+# For an application configured with OpenAI or llama-server:
+rypiq models:list --application-id APPLICATION_UUID --discover
+```
+
+### Object storage
+
+| Syntax | Positional argument | Behavior |
+| --- | --- | --- |
+| `rypiq storage:save PATH` | Local file path | Store an original file without embedding or indexing it. |
+| `rypiq storage:list` | None | List stored objects. |
+
+| Option | Applies to | Default | Meaning |
+| --- | --- | --- | --- |
+| `--prefix PREFIX` | Save | `documents` | Logical prefix for the new object key. |
+| `--prefix PREFIX` | List | Empty string | Filter object keys by prefix; empty lists all objects. |
+
+Commands use `config/storage.yml` (or `RYPIQ_STORAGE_CONFIG`) and return object metadata: key, size, content type, and checksum. They do not require an application or database connection.
+
+```sh
+rypiq storage:save samples/sample.txt --prefix documents
+rypiq storage:list --prefix documents
+```
 
 ## Tests
 
