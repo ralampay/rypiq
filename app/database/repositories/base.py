@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from uuid import UUID
 
 from app.models.document import Document
-from abc import abstractmethod
 from app.models.search import SearchResult
 
 

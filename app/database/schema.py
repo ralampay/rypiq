@@ -1,118 +1,58 @@
-import importlib
-import inspect
-import pkgutil
-import types
-from dataclasses import fields, is_dataclass
-from datetime import datetime
-from typing import Union, get_args, get_origin, get_type_hints
-from uuid import UUID
+"""Explicit application schema. Adding a table is a deliberate code change."""
+import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-def persistent(table_name, *, primary_key="id"):
-    def decorate(model):
-        model.__persistence__ = (table_name, primary_key)
 
-        return model
-
-    return decorate
-
-def discover(package_name="app.models"):
-    importlib.invalidate_caches()
-    package = importlib.import_module(package_name)
-    names = [package_name]
-    names.extend(
-        item.name
-        for item in pkgutil.walk_packages(
-            package.__path__, package.__name__ + "."
-        )
+def build_metadata(dimensions=768):
+    if type(dimensions) is not int or not 1 <= dimensions <= 16000:
+        raise ValueError('dimensions must be an integer between 1 and 16000')
+    metadata = sa.MetaData(schema='public', naming_convention={'pk': 'pk_%(table_name)s'})
+    sa.Table(
+        'documents', metadata,
+        sa.Column('id', UUID(as_uuid=True), primary_key=True),
+        sa.Column('content', sa.Text(), nullable=False),
+        sa.Column('embedding', Vector(dimensions), nullable=False),
+        sa.Column('storage_key', sa.Text(), nullable=True),
+        sa.Column('filename', sa.Text(), nullable=False),
+        sa.Column('content_type', sa.Text(), nullable=False),
+        sa.Column('source', sa.Text(), nullable=False),
+        sa.Column('source_id', UUID(as_uuid=True), nullable=True),
+        sa.Column('chunk_index', sa.Integer(), nullable=False),
+        sa.Column('model_name', sa.Text(), nullable=False),
+        sa.Column('metadata', JSONB(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     )
-
-    found = {}
-    for name in sorted(names):
-        module = importlib.import_module(name)
-        for _, model in inspect.getmembers(module, inspect.isclass):
-            if (
-                model.__module__ == module.__name__
-                and "__persistence__" in vars(model)
-            ):
-                found[(model.__module__, model.__qualname__)] = model
-
-    return [found[key] for key in sorted(found)]
-
-def metadata_for(models):
-    # Lazy imports keep Chroma model discovery independent of SQLAlchemy
-    import sqlalchemy as sa
-    from sqlalchemy.dialects import postgresql as pg
-
-    metadata = sa.MetaData(naming_convention={
-        "pk": "pk_%(table_name)s",
-        "ix": "ix_%(table_name)s_%(column_0_name)s",
-        "uq": "uq_%(table_name)s_%(column_0_name)s",
-        "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"
-    })
-
-    scalar = {
-        str: sa.Text,
-        int: sa.Integer,
-        float: pg.DOUBLE_PRECISION,
-        bool: sa.Boolean,
-        UUID: lambda: pg.UUID(as_uuid=True),
-        datetime: lambda: sa.DateTime(timezone=True),
-        dict: pg.JSONB,
-    }
-
-    for model in models:
-        if not is_dataclass(model):
-            raise ValueError(f"{model.__name__} must be a dataclass")
-
-        name, primary_key = model.__persistence__
-        
-        if name in metadata.tables:
-            raise ValueError(f"duplicate persistent table: {name}")
-
-        hints = get_type_hints(model)
-
-        columns = []
-
-        for item in fields(model):
-            annotation = hints[item.name]
-            nullable = False
-
-            if get_origin(annotation) in (Union, types.UnionType):
-                arguments = get_args(annotation)
-                nullable = type(None) in arguments
-                remaining = [a for a in arguments if a is not type(None)]
-
-                if not nullable or len(remaining) != 1:
-                    raise ValueError(
-                        f"Unsupported {model.__name__}.{item.name}"
-                    )
-                        
-                annotation = remaining[0]
-
-            if (
-                get_origin(annotation) is list
-                and get_args(annotation) == (float,)
-            ):
-                sql_type = pg.ARRAY(pg.DOUBLE_PRECISION())
-            elif annotation in scalar:
-                sql_type = scalar[annotation]()
-            else:
-                raise ValueError(
-                    f"Unsupported {model.__name__}.{item.name}"
-                )
-
-            is_key = item.name == primary_key
-
-            if is_key and nullable:
-                raise ValueError("Primary key cannot be nullable")
-            columns.append(sa.Column(
-                item.name, sql_type,
-                primary_key=is_key,
-                nullable=nullable and not is_key,
-            ))
-
-        if primary_key not in {column.name for column in columns}:
-            raise ValueError(f"Missing primary key: {name}.{primary_key}")
-        sa.Table(name, metadata, *columns)
-
     return metadata
+
+
+def initialize_schema(engine, metadata):
+    """Validate existing tables before creating missing ones, in one transaction."""
+    with engine.begin() as connection:
+        connection.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public')
+        inspector = sa.inspect(connection)
+        existing = set(inspector.get_table_names(schema='public'))
+        missing = []
+        for table in metadata.sorted_tables:
+            if table.name not in existing:
+                missing.append(table.name)
+                continue
+            columns = {column['name']: column for column in inspector.get_columns(table.name, schema='public')}
+            incompatible = set(columns) != set(table.c.keys())
+            for column in table.c:
+                actual = columns.get(column.name)
+                if actual is None:
+                    continue
+                expected_type = str(column.type.compile(dialect=connection.dialect))
+                actual_type = str(actual['type'].compile(dialect=connection.dialect))
+                incompatible |= actual_type != expected_type or actual['nullable'] != column.nullable
+            primary_key = inspector.get_pk_constraint(table.name, schema='public')['constrained_columns']
+            incompatible |= primary_key != [column.name for column in table.primary_key]
+            if incompatible:
+                raise ValueError(
+                    f'Incompatible schema for {table.name}; no tables were changed. '
+                    'Apply a deliberate schema change, or use db:reset to discard database data.'
+                )
+        metadata.create_all(connection)
+    return {'tables_created': missing}

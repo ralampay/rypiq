@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
-from app.database.schema import persistent
 
 
 def utc_now() -> datetime:
@@ -9,7 +8,6 @@ def utc_now() -> datetime:
 
 
 @dataclass
-@persistent("documents")
 class Document:
     content: str
     embedding: list[float]
@@ -27,7 +25,7 @@ class Document:
 
     # RAG processing information
     chunk_index: int = 0
-    embedding_model: str = ""
+    model_name: str = ""
     metadata: dict = field(default_factory=dict)
 
     created_at: datetime = field(default_factory=utc_now)

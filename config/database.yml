@@ -1,16 +1,20 @@
 default: &default
-  adapter: chromadb
-  collections:
-    documents: documents
+  adapter: postgresql
+  host: localhost
+  port: 5432
+  user: rypiq
+  password_env: RYPIQ_DATABASE_PASSWORD
+  maintenance_database: postgres
+  dimensions: 768
 
 development:
   <<: *default
-  path: storage/chroma/development
+  database: rypiq_development
 
 test:
   <<: *default
-  path: storage/chroma/test
+  database: rypiq_test
 
 production:
   <<: *default
-  path: storage/chroma/production
+  database: rypiq_production

@@ -47,7 +47,7 @@ def ingest_document(
                 source=str(source),
                 source_id=source_id,
                 chunk_index=chunk["index"],
-                embedding_model=result["model"],
+                model_name=result["model"],
                 metadata={
                     "start": chunk["start"],
                     "end": chunk["end"],

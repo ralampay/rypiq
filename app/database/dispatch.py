@@ -1,21 +1,15 @@
+"""Each database command has one explicit purpose."""
+METHODS = {
+    'db:create': 'create',
+    'db:migrate': 'migrate',
+    'db:drop': 'drop',
+    'db:reset': 'reset',
+}
+
+
 def dispatch(args, service):
-    methods = {
-        "db:create": "create",
-        "db:drop": "drop",
-        "db:upgrade": "generate",
-        "db:migrate": "migrate",
-        "db:rollback": "rollback",
-        "db:status": "status",
-        "db:migration": "new_migration",
-    }
-
     try:
-        method = methods[args.command]
+        method = METHODS[args.command]
     except KeyError:
-        raise ValueError(
-            f"Unknown database command {args.command}"
-        ) from None
-
-    arguments = (args.name,) if args.command == "db:migration" else ()
-
-    return getattr(service, method)(*arguments)
+        raise ValueError(f'Unknown database command {args.command}') from None
+    return getattr(service, method)()

@@ -8,25 +8,13 @@ from app.database.repositories.base import (
 class DatabaseBackend(ABC):
 
     @abstractmethod
-    def create_database(self) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def create_documents_collection(self) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def applied_migrations(self) -> set[str]:
-        raise NotImplementedError
-
-    @abstractmethod
-    def record_migration(
-        self,
-        version: str,
-        description: str,
-    ) -> None:
+    def create_database(self) -> dict:
         raise NotImplementedError
 
     @abstractmethod
     def documents(self) -> DocumentRepository:
+        raise NotImplementedError
+
+    @abstractmethod
+    def close(self) -> None:
         raise NotImplementedError

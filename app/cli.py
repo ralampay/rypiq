@@ -15,14 +15,24 @@ from app.operations.storage import (
 
 from app.storage.factory import get_storage
 
-from app.database.factory import get_database
-from app.database.migrations import migrate
-
-from app.context import create_context
-
+from app.database import commands as database_commands
 from app.embeddings.factory import get_embedding_provider
-from app.operations.search import semantic_search
-from app.operations.document import ingest_document
+from sqlalchemy.exc import SQLAlchemyError
+
+def create_context(*args, **kwargs):
+    from app.context import create_context as implementation
+    return implementation(*args, **kwargs)
+
+
+
+def semantic_search(*args, **kwargs):
+    from app.operations.search import semantic_search as implementation
+    return implementation(*args, **kwargs)
+
+def ingest_document(*args, **kwargs):
+    from app.operations.document import ingest_document as implementation
+    return implementation(*args, **kwargs)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -35,20 +45,13 @@ def main():
         required=True,
     )
 
-    subparsers.add_parser(
-        "db:create",
-        help="Initialize the configured database",
-    )
-
-    subparsers.add_parser(
-        "db:migrate",
-        help="Apply pending database migrations",
-    )
-
-    subparsers.add_parser(
-        "db:upgrade",
-        help="Creates migration files from schema changes"
-    )
+    for name, description in (
+        ('create', 'Create the configured database, vector extension and fixed tables'),
+        ('migrate', 'Create missing tables and validate the fixed schema'),
+        ('drop', 'Delete the configured database and all of its data'),
+        ('reset', 'Delete and recreate the configured database and fixed tables'),
+    ):
+        subparsers.add_parser(f'db:{name}', help=description)
 
     process_parser = subparsers.add_parser(
         "process",
@@ -248,6 +251,16 @@ def main():
 
     args = parser.parse_args()
 
+    if args.command.startswith('db:'):
+        try:
+            result = database_commands.run_database_command(args)
+        except (ValueError, RuntimeError) as exc:
+            parser.error(str(exc))
+        except Exception:
+            parser.error('Database command failed; check connectivity, permissions, pgvector availability and schema configuration')
+        print(json.dumps(result, indent=2))
+        return
+
     if args.command == "process":
         if args.medium == "text-file":
             if args.chunk_size is None or args.stride is None:
@@ -355,22 +368,8 @@ def main():
         except (ValueError, OSError) as exc:
             storage_list_parser.error(str(exc))
 
-    elif args.command == "db:create":
-        database = get_database()
-        database.create_database()
-        print("Database initialized")
-
-    elif args.command == "db:migrate":
-        database = get_database()
-        completed = migrate(database)
-
-        if not completed:
-            print("No pending migrations")
-        else:
-            for version in completed:
-                print(f"Applied migration: {version}")
-
     elif args.command == "search":
+        context = None
         try:
             context = create_context()
 
@@ -404,8 +403,14 @@ def main():
             KeyError,
         ) as exc:
             search_parser.error(str(exc))
+        except SQLAlchemyError:
+            search_parser.error('Database operation failed; check connectivity and schema configuration')
+        finally:
+            if context is not None:
+                context.close()
 
     elif args.command == "ingest":
+        context = None
         try:
             context = create_context()
 
@@ -436,6 +441,11 @@ def main():
             KeyError,
         ) as exc:
             ingest_parser.error(str(exc))
+        except SQLAlchemyError:
+            ingest_parser.error('Database operation failed; check connectivity and schema configuration')
+        finally:
+            if context is not None:
+                context.close()
 
 
 if __name__ == "__main__":
