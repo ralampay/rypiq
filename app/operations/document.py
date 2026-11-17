@@ -1,8 +1,9 @@
+from typing import TYPE_CHECKING
 from pathlib import Path
 from uuid import uuid4
 
-from app.models.application import Application
-from app.operations.application import validate_local_application
+from app.models.application import Application, validate_application
+from app.providers.config import model_identity, embedding_preprocessing, settings_for
 from app.models.embedding import validate_embedding
 
 from app.database.repositories.base import (
@@ -15,12 +16,16 @@ from app.operations.embedding import EmbedTextFile, embed_text_file
 from app.embeddings.base import EmbeddingProvider
 
 
+if TYPE_CHECKING:
+    from app.providers.session import LocalModelSession
+
+
 def persist_document(path: str, storage: ObjectStorage,
                      repository: DocumentRepository, chunk_size: int,
                      stride: int, result: dict, application: Application) -> list[Document]:
     """Persist an embedded file, compensating only for this invocation's writes."""
-    validate_local_application(application)
-    if result['model'] != Path(application.embedding_model).name:
+    validate_application(application)
+    if result['model'] != model_identity(application.embedding_model, application.provision_type):
         raise ValueError('Embedding provider model must match the application')
     for chunk in result['chunks']:
         validate_embedding(chunk['embedding'], application.embedding_size)
@@ -93,18 +98,27 @@ class IngestDocument:
         self.batch_size = batch_size
 
     def execute(self) -> list[Document]:
-        validate_local_application(self.application)
+        validate_application(self.application)
         result = EmbedTextFile(path=self.path, chunk_size=self.chunk_size,
                                stride=self.stride, embedding_provider=self.provider,
-                               batch_size=self.batch_size).execute()
+                               batch_size=self.batch_size,
+                               document_prefix=embedding_preprocessing(self.application.data, self.application.provision_type, self.application.embedding_size)[0]).execute()
         return persist_document(self.path, self.storage, self.repository,
                                 self.chunk_size, self.stride, result, self.application)
 
 
 def ingest_document(path: str, storage: ObjectStorage, repository: DocumentRepository,
-                    chunk_size: int, stride: int, *, application: Application, **embedding_options) -> list[Document]:
+                    chunk_size: int, stride: int, *, application: Application,
+                    model_session: 'LocalModelSession | None' = None, **embedding_options) -> list[Document]:
     """Compatibility entrypoint: compose embedding, then use the shared persistence operation."""
-    validate_local_application(application)
+    validate_application(application)
+    if application.provision_type != "local":
+        raise ValueError("Use IngestDocument with an injected provider for remote embeddings")
+    settings = settings_for(application, "embedding")
+    embedding_options.setdefault("context_size", settings.context_size)
+    embedding_options.setdefault("gpu_layers", settings.gpu_layers)
     embedding_options.setdefault("model_path", application.embedding_model)
-    result = embed_text_file(path=path, chunk_size=chunk_size, stride=stride, **embedding_options)
+    embedding_options.setdefault("document_prefix", embedding_preprocessing(application.data, application.provision_type, application.embedding_size)[0])
+    result = embed_text_file(path=path, chunk_size=chunk_size, stride=stride,
+                             model_session=model_session, **embedding_options)
     return persist_document(path, storage, repository, chunk_size, stride, result, application)

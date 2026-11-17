@@ -60,7 +60,7 @@ def test_search_cli_uses_provider_and_repository(
     assert received['search'] == {
         'application_id': UUID(int=1),
         'query': 'What is RAG?', 'limit': 4, 'model_path': 'test.gguf',
-        'context_size': 2048, 'gpu_layers': 0,
+        'context_size': None, 'gpu_layers': None,
     }
 
 

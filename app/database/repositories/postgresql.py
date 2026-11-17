@@ -12,6 +12,7 @@ from app.models.application import Application, validate_application
 from app.models.embedding import validate_embedding
 from app.models.document import Document
 from app.models.search import SearchResult
+from app.providers.config import embedding_preprocessing
 
 
 def positive_limit(limit):
@@ -172,6 +173,7 @@ class PostgreSQLApplicationRepository(ApplicationRepository):
                 raise ValueError('Application API key and creation time are immutable')
             changed_embedding = any(getattr(application, name) != original[name] for name in (
                 'embedding_model', 'embedding_size', 'provision_type'))
+            changed_embedding |= embedding_preprocessing(application.data, application.provision_type, application.embedding_size) != embedding_preprocessing(original['data'], original['provision_type'], original['embedding_size'])
             if changed_embedding and self._has_documents(connection, application.id):
                 raise ValueError('Cannot change embedding settings while application has documents')
             values = asdict(application)

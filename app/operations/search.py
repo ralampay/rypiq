@@ -1,11 +1,11 @@
 """Backend-independent semantic search operation."""
 
 import math
-from pathlib import Path
 
 from app.models.application import Application
 from app.models.embedding import validate_embedding
-from app.operations.application import validate_local_application
+from app.models.application import validate_application
+from app.providers.config import model_identity, embedding_preprocessing
 
 from app.database.repositories.base import DocumentRepository
 from app.embeddings.base import EmbeddingProvider
@@ -35,12 +35,12 @@ def _search(
             "Limit must be a positive integer"
         )
 
-    validate_local_application(application)
-    if embedding_provider.model_name != Path(application.embedding_model).name:
+    validate_application(application)
+    if embedding_provider.model_name != model_identity(application.embedding_model, application.provision_type):
         raise ValueError('Embedding provider model must match the application')
     # The provider accepts a list of strings.
     vectors = embedding_provider.embed([
-        QUERY_PREFIX + query.strip()
+        embedding_preprocessing(application.data, application.provision_type, application.embedding_size)[1] + query.strip()
     ])
 
     if len(vectors) != 1 or not vectors[0]:

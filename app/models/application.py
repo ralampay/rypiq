@@ -39,3 +39,6 @@ def validate_application(application: Application) -> None:
         json.dumps(application.data, allow_nan=False)
     except (TypeError, ValueError):
         raise ValueError('Application data must be a JSON object') from None
+
+    from app.providers.config import validate_provider_config
+    validate_provider_config(application.data, application.embedding_size)

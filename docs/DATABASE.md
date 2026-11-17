@@ -35,13 +35,15 @@ Commands return JSON. Failures return a nonzero exit code with a concise error. 
 
 The explicit schema in [app/database/schema.py](../app/database/schema.py) declares `public.applications` and `public.documents`. Applications have a UUID, name, generated unique API key, embedding model, provision type (`local`, `openai`, `llama-server`), embedding size, optional inference model, JSONB `data`, and timestamps. API keys appear only in application creation output; list/show omit them. Keys are stored as supplied credentials, but authentication is not implemented.
 
-Every persisted document belongs to an application and copies its `embedding_model`, `embedding_size`, and `provision_type`. Existing `model_name` remains the provider-reported identifier. Ownership and embedding snapshots cannot change through document updates. Applications cannot be deleted while documents reference them; application editing/deletion commands are not included.
+Every persisted document belongs to an application and copies its `embedding_model`, `embedding_size`, and `provision_type`. Existing `model_name` remains the provider-reported identifier. Ownership and embedding snapshots cannot change through document updates. Applications cannot be deleted while documents reference them; application updates are available through `application:update`; no deletion CLI command is included.
 
 The vector column supports different sizes across applications. `dimensions` in `database.yml` supplies the default size for new applications (**768**); it no longer fixes the table's vector size. Writes and queries require finite, nonzero float32 vectors matching the application's size (1–16000). Search requires an application ID, filters before cosine comparison, and preserves exact cosine ordering with UUID tie-breaking. No approximate vector index is created.
 
 `db:migrate` explicitly upgrades the original fixed-vector documents schema in a single transaction under a table lock. Back up existing data before upgrading and schedule a maintenance window. The upgrade creates one legacy application per distinct `model_name`, preserves the actual vector size and all existing document values, and assumes `local` provisioning. Empty legacy model names remain empty and are flagged in application `data`; configured embedding operations reject these until explicitly repaired. Stored files are untouched. Repeating migration is a no-op. Unknown or partially modified schemas are rejected without changes; no migration discovery or revision journal is introduced. `db:create` uses the same initializer on an existing database.
 
 CRUD uses parameterized SQLAlchemy Core queries. Python repository callers must provide application ownership and matching snapshots for document writes, and `application_id` for vector searches. These are persistence interfaces, not an authentication boundary.
+
+Schema validation rejects PostgreSQL `NOT VALID` constraints even when their definitions match: existing rows have not been verified. Repair invalid rows and explicitly validate the constraint before retrying `db:migrate`; migration does not silently validate or rewrite application data.
 
 ## Application commands
 
@@ -54,7 +56,7 @@ rypiq application:list
 rypiq application:show APPLICATION_UUID
 ```
 
-`application:show APPLICATION_UUID` returns application settings without its API key. Creation also accepts `--provision-type`, `--inference-model`, and `--data '{"purpose":"example"}'`. Only local embedding execution is implemented; remote configurations can be stored but ingestion/search reject them before effects.
+`application:show APPLICATION_UUID` returns application settings without its API key. Creation also accepts `--provision-type`, `--inference-model`, and `--data '{"purpose":"example"}'`. Embedding and inference execution support all three providers. See [Model providers](PROVIDERS.md) for endpoints, credentials, model aliases, and chat commands.
 
 ## CRUD services
 
@@ -90,7 +92,7 @@ Document creation copies application embedding settings without mutating the inp
 
 Missing reads/updates raise `KeyError`. Deletes return `False` for missing records (including documents outside the service's scope); lists return an empty list when no records match. Invalid inputs raise `ValueError` before writes. Document deletion removes only the database record and preserves object-storage files, which can be shared by multiple chunks.
 
-Application updates preserve API keys and creation timestamps. Embedding model, size, and provision type can change only when no documents reference the application. Other settings can be updated while documents exist. Application deletion is restricted until its documents have been removed. These rules execute under transaction locks so document creation cannot race past them. API key rotation and new CRUD CLI commands are outside this interface.
+Application updates preserve API keys and creation timestamps. Embedding model, size, provision type, and preprocessing settings can change only when no documents reference the application. Other settings can be updated while documents exist. Application deletion is restricted until its documents have been removed. These rules execute under transaction locks so document creation cannot race past them. API key rotation and document CRUD CLI commands are outside this interface. `application:update` also resolves model catalog aliases; see [Model providers](PROVIDERS.md).
 
 ## Database integration tests
 

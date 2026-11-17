@@ -56,20 +56,23 @@ def test_help_lists_only_supported_database_commands(invoke):
 def test_application_management_and_required_scope(invoke):
     assert invoke('db:create').returncode == 0
     result = invoke('application:create', '--name', 'example', '--embedding-model', 'model',
-                    '--provision-type', 'openai', '--embedding-size', '4', '--data', '{"nested":[1]}')
+                    '--provision-type', 'openai', '--embedding-size', '4', '--data',
+                    '{"nested":[1],"provider_config":{"embedding":{"api_key_env":"RYPIQ_TEST_MISSING_API_KEY"}}}')
     assert result.returncode == 0, result.stderr
     created = json.loads(result.stdout)
     assert created['embedding_size'] == 4
-    assert created['data'] == {'nested': [1]}
+    assert created['data']['nested'] == [1]
     assert created['api_key']
     for result in (invoke('application:list'), invoke('application:show', created['id'])):
         assert result.returncode == 0, result.stderr
-        assert 'api_key' not in result.stdout
+        payload = json.loads(result.stdout)
+        records = payload if isinstance(payload, list) else [payload]
+        assert all('api_key' not in record for record in records)
         assert created['api_key'] not in result.stderr
     assert invoke('search', 'query').returncode != 0
     unsupported = invoke('search', 'query', '--application-id', created['id'])
     assert unsupported.returncode != 0
-    assert 'not implemented' in unsupported.stderr
+    assert 'credential' in unsupported.stderr
     invalid = invoke('application:create', '--name', 'bad', '--embedding-model', 'model', '--data', '[]')
     assert invalid.returncode != 0
     assert len(json.loads(invoke('application:list').stdout)) == 1

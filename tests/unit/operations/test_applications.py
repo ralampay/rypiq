@@ -35,19 +35,23 @@ def test_create_returns_repository_result_and_missing_application_raises():
 
 
 @pytest.mark.parametrize('provider_type', ['openai', 'llama-server'])
-def test_unsupported_provider_has_no_embedding_or_storage_effects(provider_type):
-    application = Application(name='test', embedding_model='model', provision_type=provider_type)
-    provider, repository, storage = Mock(), Mock(), Mock()
-    with pytest.raises(ValueError, match='not implemented'):
-        IngestDocument(path='unused', chunk_size=2, stride=2, application=application,
-                       embedding_provider=provider, repository=repository, storage=storage).execute()
-    with pytest.raises(ValueError, match='not implemented'):
-        SearchDocuments(query='query', application=application, embedding_provider=provider,
-                        repository=repository).execute()
-    provider.embed.assert_not_called()
-    storage.save.assert_not_called()
-    repository.create.assert_not_called()
-    repository.search_by_vector.assert_not_called()
+def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provider_type):
+    source = tmp_path / 'input.txt'
+    source.write_text('hello')
+    application = Application(name='test', embedding_model='remote/model', embedding_size=2,
+                              provision_type=provider_type)
+    provider, repository, storage = Mock(model_name='remote/model'), Mock(), Mock()
+    provider.embed.return_value = [[1., 0.]]
+    storage.save.return_value = Mock(key='stored', content_type='text/plain', checksum='checksum')
+    documents = IngestDocument(path=str(source), chunk_size=10, stride=10, application=application,
+                               embedding_provider=provider, repository=repository, storage=storage).execute()
+    assert documents[0].embedding_model == 'remote/model'
+    provider.embed.assert_called_once_with(['hello'])
+    provider.embed.reset_mock()
+    SearchDocuments(query='query', application=application, embedding_provider=provider,
+                    repository=repository).execute()
+    provider.embed.assert_called_once_with(['query'])
+    provider.close.assert_not_called()
 
 
 @pytest.mark.parametrize('vector', [[1., 0.], [0., 0., 0.], [1e100, 0., 0.]])

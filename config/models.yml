@@ -1,0 +1,24 @@
+# Local paths are relative to this file. Aliases are referenced as @name.
+# No models are downloaded automatically. Add your inference GGUF path here.
+models:
+  embeddinggemma:
+    provider: local
+    capabilities: [embedding]
+    path: ../models/embeddinggemma-300m-Q4_0.gguf
+    options:
+      document_prefix: 'title: none | text: '
+      query_prefix: 'task: search result | query: '
+  openai-embedding:
+    provider: openai
+    capabilities: [embedding]
+    model: text-embedding-3-small
+    options:
+      dimensions: 768
+  local-chat:
+    provider: local
+    capabilities: [inference]
+    # Replace with your actual chat-capable GGUF file. Missing files are listed as missing.
+    path: ../models/chat.gguf
+    options:
+      context_size: 4096
+      gpu_layers: 0

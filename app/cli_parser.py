@@ -15,8 +15,8 @@ def add_chunk_options(parser: argparse.ArgumentParser, *, required: bool) -> Non
 
 def add_model_options(parser: argparse.ArgumentParser, *, batching: bool) -> None:
     parser.add_argument('--model', default=DEFAULT_MODEL)
-    parser.add_argument('--context_size', type=int, default=2048)
-    parser.add_argument('--gpu_layers', type=int, default=0)
+    parser.add_argument('--context_size', type=int)
+    parser.add_argument('--gpu_layers', type=int)
     if batching:
         parser.add_argument('--batch_size', type=int, default=1)
 
@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_model_options(ingest, batching=True)
     for command in (ingest, search):
         command.add_argument('--application-id', type=UUID, required=True)
-        command.set_defaults(model=None)
+        command.set_defaults(model=None, context_size=None, gpu_layers=None)
     create = commands.add_parser('application:create', help='Create an application')
     create.add_argument('--name', required=True)
     create.add_argument('--embedding-model', required=True)
@@ -74,4 +74,25 @@ def build_parser() -> argparse.ArgumentParser:
     listing.add_argument('--offset', type=int, default=0)
     show = commands.add_parser('application:show', help='Show application without API key')
     show.add_argument('application_id', type=UUID)
+    chat = commands.add_parser('chat', help='Run non-streaming text inference')
+    chat.add_argument('prompt')
+    selection = chat.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--application-id', type=UUID)
+    selection.add_argument('--model', help='Standalone local GGUF path or @catalog-alias')
+    chat.add_argument('--system')
+    chat.add_argument('--max-tokens', type=int, default=512)
+    chat.add_argument('--temperature', type=float)
+    models = commands.add_parser('models:list', help='List catalog models and optionally discover remote models')
+    models.add_argument('--application-id', type=UUID)
+    models.add_argument('--discover', action='store_true')
+    update = commands.add_parser('application:update', help='Update application configuration')
+    update.add_argument('application_id', type=UUID)
+    update.add_argument('--name')
+    update.add_argument('--embedding-model')
+    update.add_argument('--embedding-size', type=int)
+    update.add_argument('--provision-type', choices=['local', 'openai', 'llama-server'])
+    inference = update.add_mutually_exclusive_group()
+    inference.add_argument('--inference-model')
+    inference.add_argument('--clear-inference-model', action='store_true')
+    update.add_argument('--data', type=json.loads, help='Replace the complete application data JSON object')
     return parser

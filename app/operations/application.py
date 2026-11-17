@@ -2,7 +2,7 @@
 from uuid import UUID
 
 from app.database.repositories.base import ApplicationRepository
-from app.models.application import Application, validate_application
+from app.models.application import Application
 from app.services.application import ApplicationService
 
 
@@ -22,9 +22,3 @@ def get_application(*, application_id: UUID, repository: ApplicationRepository) 
 def list_applications(*, repository: ApplicationRepository, limit: int = 100,
                       offset: int = 0) -> list[Application]:
     return ApplicationService(repository=repository).list(limit=limit, offset=offset)
-
-
-def validate_local_application(application: Application) -> None:
-    validate_application(application)
-    if application.provision_type != 'local':
-        raise ValueError(f'Embedding provider {application.provision_type} is not implemented')

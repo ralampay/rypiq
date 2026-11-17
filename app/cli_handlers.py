@@ -1,6 +1,7 @@
 """CLI adapters: map parsed arguments to Python entrypoints and JSON shapes."""
 from argparse import Namespace
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from app.providers.contracts import ChatMessage
 
 from app import application
 from app.database import commands as database_commands
@@ -85,7 +86,34 @@ def application_show(args: Namespace) -> dict:
     return application_json(application.show_application(application_id=args.application_id))
 
 
+def chat(args: Namespace) -> dict:
+    messages = []
+    if args.system is not None:
+        messages.append(ChatMessage('system', args.system))
+    messages.append(ChatMessage('user', args.prompt))
+    return asdict(application.chat(messages=messages, application_id=args.application_id,
+                                   model_path=args.model, max_tokens=args.max_tokens,
+                                   temperature=args.temperature))
+
+
+def models_list(args: Namespace) -> list[dict]:
+    return [asdict(model) for model in application.list_models(
+        application_id=args.application_id, discover=args.discover)]
+
+
+def application_update(args: Namespace) -> dict:
+    value = application.show_application(application_id=args.application_id)
+    changes = {key: getattr(args, key) for key in ('name', 'embedding_model', 'embedding_size',
+               'provision_type', 'inference_model', 'data') if getattr(args, key) is not None}
+    if args.clear_inference_model:
+        changes['inference_model'] = None
+    return application_json(application.update_application(application=replace(value, **changes)))
+
+
 HANDLERS = {
+    'chat': chat,
+    'models:list': models_list,
+    'application:update': application_update,
     'application:create': application_create,
     'application:list': application_list,
     'application:show': application_show,

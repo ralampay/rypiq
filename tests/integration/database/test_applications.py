@@ -135,3 +135,24 @@ def test_unrecognized_legacy_schema_is_not_upgraded(backend):
     with pytest.raises(ValueError, match='Incompatible'):
         backend.migrate()
     assert sa.inspect(backend.engine).get_table_names() == ['documents']
+
+
+@pytest.mark.parametrize('name,definition', [
+    ('ck_documents_vector_size', 'CHECK (vector_dims(embedding) = embedding_size)'),
+    ('documents_application_id_fkey',
+     'FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE RESTRICT'),
+])
+def test_unvalidated_constraints_are_rejected(backend, name, definition):
+    backend.create_database()
+    with backend.engine.begin() as connection:
+        connection.exec_driver_sql(f'ALTER TABLE documents DROP CONSTRAINT {name}')
+        connection.exec_driver_sql(f'ALTER TABLE documents ADD CONSTRAINT {name} {definition} NOT VALID')
+    with pytest.raises(ValueError, match='Incompatible'):
+        backend.migrate()
+    # Rejection must leave the database unchanged; an explicit validation repairs it.
+    with backend.engine.begin() as connection:
+        assert connection.execute(sa.text(
+            "SELECT convalidated FROM pg_constraint WHERE conrelid = 'public.documents'::regclass "
+            'AND conname = :name'), {'name': name}).scalar() is False
+        connection.exec_driver_sql(f'ALTER TABLE documents VALIDATE CONSTRAINT {name}')
+    assert backend.migrate() == {'tables_created': []}

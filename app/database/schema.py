@@ -56,6 +56,16 @@ def validate_table(connection, table):
     inspector = sa.inspect(connection)
     columns = {c['name']: c for c in inspector.get_columns(table.name, schema='public')}
     incompatible = set(columns) != set(table.c.keys())
+    # Matching definitions alone do not guarantee that existing rows were checked.
+    incompatible |= connection.execute(sa.text('''
+        SELECT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public' AND t.relname = :table_name
+              AND NOT c.convalidated
+        )
+    '''), {'table_name': table.name}).scalar_one()
     for column in table.c:
         actual = columns.get(column.name)
         if actual is None:

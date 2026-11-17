@@ -152,3 +152,15 @@ def test_application_rejected_update_preserves_timestamp_and_data(services):
     loaded = applications.get(first.id)
     assert loaded.updated_at == first.updated_at == candidate.updated_at
     assert loaded.data == first.data == {}
+
+
+@pytest.mark.parametrize('changes', [{'document_prefix': 'new'}, {'query_prefix': 'new'}, {'dimensions': 2}])
+def test_embedding_preprocessing_cannot_change_with_documents(services, changes):
+    applications, documents, first, _ = services
+    documents.create(Document(content='text', embedding=[1., 0.]))
+    with pytest.raises(ValueError, match='documents'):
+        applications.update(replace(first, data={'provider_config': {'embedding': changes}}))
+    # Inference settings and endpoint/credential locations do not change embedding preprocessing.
+    changed = applications.update(replace(first, data={'provider_config': {
+        'inference': {'context_size': 4096}, 'embedding': {'api_key_env': 'NEW_KEY'}}}))
+    assert changed.data['provider_config']['inference']['context_size'] == 4096

@@ -1,6 +1,6 @@
 # RyPiq
 
-A Python CLI and library for processing text, generating local embeddings, storing original files, and searching documents with PostgreSQL and pgvector.
+A Python CLI and library for processing text, generating embeddings and text responses, storing original files, and searching documents with PostgreSQL and pgvector.
 
 ## Setup
 
@@ -17,6 +17,10 @@ Configure PostgreSQL and initialize the database using the [database setup guide
 ## Database
 
 See [Database documentation](docs/DATABASE.md) for configuration, lifecycle commands, schema and migration behavior, application management, CRUD services, and database integration tests.
+
+## Model providers
+
+See [Model providers](docs/PROVIDERS.md) for local GGUF execution, existing llama.cpp HTTP servers, OpenAI, the model catalog, chat, and model discovery.
 
 ## Ingest and search
 

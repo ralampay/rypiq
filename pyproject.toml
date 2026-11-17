@@ -12,6 +12,7 @@ requires-python = ">= 3.14.3"
 dependencies = [
   "python-dotenv",
   "llama-cpp-python",
+  "openai>=2,<3",
   "PyYAML>=6,<7",
   "SQLAlchemy>=2,<3",
   "psycopg[binary]>=3,<4",
