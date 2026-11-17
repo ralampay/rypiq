@@ -1,9 +1,13 @@
 import pytest
 
 from app.operations.search import semantic_search
+from app.models.application import Application
+
+APPLICATION = Application(name="test", embedding_model="fake", embedding_size=3)
 
 
 class FakeEmbeddingProvider:
+    model_name = "fake"
 
     def __init__(self):
         self.inputs = None
@@ -29,6 +33,7 @@ def test_search_embeds_query_and_returns_results():
     repository = FakeRepository()
 
     results = semantic_search(
+        application=APPLICATION,
         query="What is RAG?",
         embedding_provider=provider,
         repository=repository,
@@ -44,6 +49,7 @@ def test_search_embeds_query_and_returns_results():
     assert repository.received == {
         "embedding": [0.1, 0.2, 0.3],
         "limit": 4,
+        "application_id": APPLICATION.id,
     }
 
 
@@ -63,6 +69,7 @@ def test_search_rejects_invalid_inputs(query, limit):
             FakeEmbeddingProvider(),
             FakeRepository(),
             limit,
+            application=APPLICATION,
         )
 
 
@@ -76,4 +83,5 @@ def test_search_rejects_invalid_embedding():
             "test",
             provider,
             FakeRepository(),
+            application=APPLICATION,
         )

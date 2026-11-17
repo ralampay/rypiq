@@ -1,6 +1,6 @@
 # Code conventions
 
-These conventions guide both human contributors and coding agents. [AGENTS.md](../AGENTS.md) provides the concise working instructions; [README.md](../README.md) describes the application contract and setup.
+These conventions guide both human contributors and coding agents. [AGENTS.md](../AGENTS.md) provides the concise working instructions; [README.md](../README.md) describes installation and command usage. [Database](DATABASE.md) covers database setup, schema, migrations, and CRUD services.
 
 ## Architectural intent
 

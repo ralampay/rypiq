@@ -8,12 +8,14 @@ import pytest
 import yaml
 
 from app.database.backends.postgresql import PostgreSQLBackend
+from app.models.application import Application
 from app.operations import document as document_operation
 from app.storage.providers.local import LocalStorage
 
 
 def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path, monkeypatch):
     backend.create_database()
+    application = backend.applications().create(Application(name="test", embedding_model="example.gguf", embedding_size=3))
     repository = backend.documents()
     storage = LocalStorage(tmp_path / 'objects')
     source = tmp_path / 'source.txt'
@@ -22,7 +24,7 @@ def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path
         {'text': 'example', 'embedding': [1., 0., 0.], 'index': 0, 'start': 0, 'end': 7},
     ]}
     monkeypatch.setattr(document_operation, 'embed_text_file', lambda **kwargs: result)
-    documents = document_operation.ingest_document(str(source), storage, repository, 7, 7)
+    documents = document_operation.ingest_document(str(source), storage, repository, 7, 7, application=application)
     stored = repository.get(documents[0].id)
     assert stored.model_name == 'example.gguf'
     assert (storage.root / stored.storage_key).read_text() == source.read_text()
@@ -30,7 +32,7 @@ def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path
     before = [item.key for item in storage.list()]
     result['chunks'].append({'text': 'invalid', 'embedding': [1., 0.], 'index': 1, 'start': 7, 'end': 9})
     with pytest.raises(ValueError, match='Embedding'):
-        document_operation.ingest_document(str(source), storage, repository, 7, 7)
+        document_operation.ingest_document(str(source), storage, repository, 7, 7, application=application)
     assert [item.id for item in repository.list()] == [stored.id]
     assert [item.key for item in storage.list()] == before
 
@@ -54,11 +56,12 @@ def test_real_model_cli_ingestion_search_and_reset(backend, tmp_path):
         assert result.returncode == 0, result.stderr
         return json.loads(result.stdout)
     invoke('db:create')
+    application = invoke('application:create', '--name', 'test', '--embedding-model', str(model))
     source = tmp_path / 'notes.txt'
     source.write_text('PostgreSQL stores structured data. Vector search retrieves related documents.')
-    ingested = invoke('ingest', str(source), '--chunk_size', '200', '--stride', '200', '--model', str(model))
+    ingested = invoke('ingest', str(source), '--application-id', application['id'], '--chunk_size', '200', '--stride', '200', '--model', str(model))
     assert ingested['indexed_chunks'] == 1
-    results = invoke('search', 'Which database stores structured data?', '--model', str(model))
+    results = invoke('search', 'Which database stores structured data?', '--application-id', application['id'], '--model', str(model))
     assert results[0]['content'] == source.read_text()
     object_path = tmp_path / 'objects' / ingested['storage_key']
     with PostgreSQLBackend(settings) as initialized:

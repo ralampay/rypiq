@@ -1,11 +1,13 @@
-from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, MagicMock
+from app.models.application import Application
+import app.storage.factory
+
+APPLICATION = Application(name="test", embedding_model="fake", embedding_size=3)
 
 import pytest
 
-from app import application, db
-from app.context import ApplicationContext
+from app import application
 
 
 def test_search_does_not_require_object_storage_configuration(monkeypatch):
@@ -13,14 +15,15 @@ def test_search_does_not_require_object_storage_configuration(monkeypatch):
     backend.documents.return_value.search_by_vector.return_value = ['match']
     backend.__enter__ = Mock(return_value=backend)
     backend.__exit__ = Mock()
-    monkeypatch.setattr(db, 'get_database', lambda: backend)
+    monkeypatch.setattr(application, 'get_database', lambda: backend)
+    backend.applications.return_value.get.return_value = APPLICATION
     def wrong_dependency():
         raise AssertionError('Search must not construct object storage')
-    monkeypatch.setattr(application, 'create_context', wrong_dependency)
-    provider = Mock()
+    monkeypatch.setattr(app.storage.factory, 'get_storage', wrong_dependency)
+    provider = Mock(model_name="fake")
     provider.embed.return_value = [[1., 0., 0.]]
     monkeypatch.setattr(application, 'get_embedding_provider', lambda **kwargs: provider)
-    assert application.search_documents(query='hello') == ['match']
+    assert application.search_documents(query='hello', application_id=APPLICATION.id) == ['match']
     provider.close.assert_called_once()
     backend.__exit__.assert_called_once()
 
@@ -59,15 +62,17 @@ def test_bad_context_size_does_not_construct_provider():
 
 
 def test_ingestion_application_releases_context_after_command_failure(monkeypatch):
-    backend = Mock()
-    context = ApplicationContext(documents=Mock(), storage=Mock(), database=backend)
-    monkeypatch.setattr(application, 'create_context', lambda: context)
+    backend = MagicMock()
+    backend.__enter__.return_value = backend
+    backend.applications.return_value.get.return_value = APPLICATION
+    monkeypatch.setattr(application, 'get_database', lambda: backend)
+    monkeypatch.setattr(app.storage.factory, 'get_storage', Mock())
     model = Mock()
     monkeypatch.setattr(application, 'get_embedding_provider', lambda **kwargs: model)
     command = Mock()
     command.execute.side_effect = ValueError('invalid input')
     monkeypatch.setattr(application, 'IngestDocument', lambda **kwargs: command)
     with pytest.raises(ValueError, match='invalid input'):
-        application.ingest_file(path='unused', chunk_size=1, stride=1)
-    backend.close.assert_called_once()
+        application.ingest_file(application_id=APPLICATION.id, path='unused', chunk_size=1, stride=1)
+    backend.__exit__.assert_called_once()
     model.close.assert_called_once()

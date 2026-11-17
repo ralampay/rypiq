@@ -1,5 +1,6 @@
 """CLI adapters: map parsed arguments to Python entrypoints and JSON shapes."""
 from argparse import Namespace
+from dataclasses import asdict
 
 from app import application
 from app.database import commands as database_commands
@@ -42,14 +43,14 @@ def storage_list(args: Namespace) -> list[dict]:
 
 
 def search(args: Namespace) -> list[dict]:
-    matches = application.search_documents(query=args.query, limit=args.limit, **model_options(args))
+    matches = application.search_documents(application_id=args.application_id, query=args.query, limit=args.limit, **model_options(args))
     return [dict(id=str(match.document.id), distance=match.distance,
                  content=match.document.content, storage_key=match.document.storage_key)
             for match in matches]
 
 
 def ingest(args: Namespace) -> dict:
-    documents = application.ingest_file(path=args.path, chunk_size=args.chunk_size,
+    documents = application.ingest_file(application_id=args.application_id, path=args.path, chunk_size=args.chunk_size,
                                        stride=args.stride, batch_size=args.batch_size, **model_options(args))
     return dict(indexed_chunks=len(documents), storage_key=documents[0].storage_key if documents else None)
 
@@ -58,7 +59,36 @@ def database(args: Namespace) -> dict:
     return database_commands.execute_database_command(args.command)
 
 
+def application_json(value, *, include_key=False):
+    result = asdict(value)
+    if not include_key:
+        result.pop('api_key')
+    result['id'] = str(value.id)
+    result['created_at'] = value.created_at.isoformat()
+    result['updated_at'] = value.updated_at.isoformat()
+    return result
+
+
+def application_create(args: Namespace) -> dict:
+    value = application.create_application(name=args.name, embedding_model=args.embedding_model,
+                                          embedding_size=args.embedding_size, provision_type=args.provision_type,
+                                          inference_model=args.inference_model, data=args.data)
+    return application_json(value, include_key=True)
+
+
+def application_list(args: Namespace) -> list[dict]:
+    return [application_json(value) for value in
+            application.enumerate_applications(limit=args.limit, offset=args.offset)]
+
+
+def application_show(args: Namespace) -> dict:
+    return application_json(application.show_application(application_id=args.application_id))
+
+
 HANDLERS = {
+    'application:create': application_create,
+    'application:list': application_list,
+    'application:show': application_show,
     'process': process,
     'embed': embed,
     'storage:save': storage_save,

@@ -2,6 +2,8 @@
 
 RyPiq exposes the same operations through a CLI and ordinary Python calls. Backend here means a Python library caller, worker, or another application component; no web framework is required.
 
+Database setup, schema, migrations, and CRUD service contracts are documented in [Database](DATABASE.md).
+
 ## Execution paths
 
 ```mermaid
@@ -37,21 +39,26 @@ No core command receives an argparse namespace, prints output, or terminates the
 Use `app.application` when environment configuration and automatic resource ownership are appropriate:
 
 ```python
-from app.application import embed_file, ingest_file, search_documents
+from app.application import create_application, embed_file, ingest_file, search_documents
 from app.database.commands import execute_database_command
 
-# Requires an existing configured database; creates missing declared tables.
+# Requires an existing configured database; upgrades recognized legacy schemas.
 result = execute_database_command('db:migrate')
 
+application = create_application(
+    name='Example', embedding_model='models/embeddinggemma-300m-Q4_0.gguf',
+    embedding_size=768,
+)
 vectors = embed_file(
     path='samples/sample.txt', chunk_size=500, stride=400,
     model_path='models/embeddinggemma-300m-Q4_0.gguf',
 )
 documents = ingest_file(
+    application_id=application.id,
     path='samples/sample.txt', chunk_size=500, stride=400,
     model_path='models/embeddinggemma-300m-Q4_0.gguf',
 )
-matches = search_documents(query='What does this document describe?', limit=5)
+matches = search_documents(application_id=application.id, query='What does this document describe?', limit=5)
 ```
 
 The facade returns Python values: embedding dictionaries, `list[Document]`, or `list[SearchResult]`. It raises exceptions rather than encoding error envelopes. It never prints JSON. Search opens only database and embedding resources; it does not require object-storage configuration. Ingestion opens all three capabilities.
@@ -63,19 +70,27 @@ For embedding alone, file/chunk validation occurs before constructing a model. B
 Use `EmbedTextFile`, `IngestDocument`, or `SearchDocuments` when the caller already owns the dependencies, needs to reuse a loaded model, or wants isolated tests:
 
 ```python
+from uuid import UUID
 from app.application import open_embedding_provider
+from app.operations.application import get_application
 from app.context import create_context
 from app.operations.document import IngestDocument
 from app.operations.search import SearchDocuments
 
 with create_context() as context:
-    with open_embedding_provider() as provider:
+    application = get_application(
+        application_id=UUID('00000000-0000-0000-0000-000000000001'),
+        repository=context.applications,
+    )  # Replace the example UUID with an existing application ID.
+    with open_embedding_provider(model_path=application.embedding_model) as provider:
         documents = IngestDocument(
+            application=application,
             path='samples/sample.txt', chunk_size=500, stride=400,
             embedding_provider=provider,
             repository=context.documents, storage=context.storage,
         ).execute()
         matches = SearchDocuments(
+            application=application,
             query='What does this document describe?', limit=5,
             embedding_provider=provider, repository=context.documents,
         ).execute()
@@ -87,7 +102,7 @@ For database-only library work, prefer `with app.db.open_document_repository() a
 
 ## Compatibility and extension points
 
-- Existing `embed_text_file()`, `ingest_document()`, and `semantic_search()` signatures and result shapes remain supported. The first two compose resources where their original contracts require it; all share the new workflow implementations.
+- `embed_text_file()` retains its signature. `ingest_document()` and `semantic_search()` now require a keyword `application` argument; their result shapes remain unchanged. Configured ingestion/search require `application_id`. Application creation/list/show delegate to reusable operations and repositories; no operation receives CLI namespaces or owns borrowed resources.
 - Keep small transformations such as text processing and storage listing as functions. Reuse factories for configured construction instead of placing environment lookups inside a command.
 - Add a new CLI command by defining parser syntax, an explicit handler, and an operation or command appropriate to the use case. Keep JSON presentation in handlers and execution/resource ownership in the Python layers.
 - Add backend-only behavior directly to the operation layer and test it without importing the CLI. Add a configured facade only when resource construction is genuinely useful to callers.

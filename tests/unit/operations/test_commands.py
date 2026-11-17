@@ -6,6 +6,9 @@ import pytest
 
 from app.operations import document, embedding, search
 from app.models.document import Document
+from app.models.application import Application
+
+APPLICATION = Application(name="test", embedding_model="fake.gguf", embedding_size=3)
 from app.models.search import SearchResult
 
 
@@ -32,7 +35,7 @@ def test_search_command_returns_domain_values_without_output(capsys):
     repository = Mock()
     matches = [SearchResult(Document(content='found', embedding=[1., 0., 0.]), 0.)]
     repository.search_by_vector.return_value = matches
-    command = search.SearchDocuments(query='find', embedding_provider=model, repository=repository, limit=2)
+    command = search.SearchDocuments(application=APPLICATION, query='find', embedding_provider=model, repository=repository, limit=2)
     model.embed.assert_not_called()
     assert command.execute() == matches
     assert capsys.readouterr().out == ''
@@ -47,7 +50,7 @@ def test_ingestion_command_uses_injected_dependencies(tmp_path):
     storage = Mock()
     storage.save.return_value = SimpleNamespace(key='documents/source.txt', content_type='text/plain', checksum='checksum')
     repository = Mock()
-    command = document.IngestDocument(path=str(path), storage=storage, repository=repository,
+    command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=repository,
                                       embedding_provider=model, chunk_size=4, stride=4)
     storage.save.assert_not_called()
     result = command.execute()
@@ -68,7 +71,7 @@ def test_ingestion_preserves_failure_and_attempts_all_compensation(tmp_path):
     repository = Mock()
     repository.create.side_effect = [None, None, primary]
     repository.delete.side_effect = OSError('cleanup failure')
-    command = document.IngestDocument(path=str(path), storage=storage, repository=repository,
+    command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=repository,
                                       embedding_provider=provider(), chunk_size=4, stride=4)
     with pytest.raises(RuntimeError, match='write failure') as error:
         command.execute()
@@ -85,7 +88,7 @@ def test_embedding_validation_finishes_before_storage(tmp_path):
     model.embed.side_effect = None
     model.embed.return_value = [[float('nan')]]
     storage = Mock()
-    command = document.IngestDocument(path=str(path), storage=storage, repository=Mock(),
+    command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=Mock(),
                                       embedding_provider=model, chunk_size=4, stride=4)
     with pytest.raises(ValueError, match='invalid'):
         command.execute()
@@ -110,7 +113,7 @@ def test_search_rejects_nonfinite_provider_output():
     model.embed.return_value = [[float('inf')]]
     repository = Mock()
     with pytest.raises(ValueError, match='invalid'):
-        search.SearchDocuments(query='hello', embedding_provider=model, repository=repository).execute()
+        search.SearchDocuments(application=APPLICATION, query='hello', embedding_provider=model, repository=repository).execute()
     repository.search_by_vector.assert_not_called()
 
 
@@ -123,7 +126,7 @@ def test_ingestion_preserves_primary_when_storage_compensation_fails(tmp_path):
     repository = Mock()
     repository.create.side_effect = ValueError('primary')
     with pytest.raises(ValueError, match='primary') as error:
-        document.IngestDocument(path=str(path), chunk_size=4, stride=4,
+        document.IngestDocument(application=APPLICATION, path=str(path), chunk_size=4, stride=4,
                                 embedding_provider=provider(), storage=storage,
                                 repository=repository).execute()
     assert 'stored source' in error.value.__notes__[0]

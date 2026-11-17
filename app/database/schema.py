@@ -7,12 +7,37 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 def build_metadata(dimensions=768):
     if type(dimensions) is not int or not 1 <= dimensions <= 16000:
         raise ValueError('dimensions must be an integer between 1 and 16000')
-    metadata = sa.MetaData(schema='public', naming_convention={'pk': 'pk_%(table_name)s'})
+    metadata = sa.MetaData(schema='public', naming_convention={'pk': 'pk_%(table_name)s', 'ix': 'ix_%(table_name)s_%(column_0_name)s'})
+    sa.Table(
+        'applications', metadata,
+        sa.Column('id', UUID(as_uuid=True), primary_key=True),
+        sa.Column('name', sa.Text(), nullable=False),
+        sa.Column('api_key', sa.Text(), nullable=False, unique=True),
+        sa.Column('embedding_model', sa.Text(), nullable=False),
+        sa.Column('provision_type', sa.Text(), nullable=False),
+        sa.Column('embedding_size', sa.Integer(), nullable=False),
+        sa.Column('inference_model', sa.Text(), nullable=True),
+        sa.Column('data', JSONB(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("provision_type IN ('local', 'openai', 'llama-server')",
+                           name='ck_applications_provider'),
+        sa.CheckConstraint('embedding_size BETWEEN 1 AND 16000', name='ck_applications_size'),
+    )
     sa.Table(
         'documents', metadata,
         sa.Column('id', UUID(as_uuid=True), primary_key=True),
         sa.Column('content', sa.Text(), nullable=False),
-        sa.Column('embedding', Vector(dimensions), nullable=False),
+        sa.Column('embedding', Vector(), nullable=False),
+        sa.Column('application_id', UUID(as_uuid=True),
+                  sa.ForeignKey('public.applications.id', ondelete='RESTRICT'), nullable=False, index=True),
+        sa.Column('embedding_model', sa.Text(), nullable=False),
+        sa.Column('embedding_size', sa.Integer(), nullable=False),
+        sa.Column('provision_type', sa.Text(), nullable=False),
+        sa.CheckConstraint('vector_dims(embedding) = embedding_size', name='ck_documents_vector_size'),
+        sa.CheckConstraint('embedding_size BETWEEN 1 AND 16000', name='ck_documents_size'),
+        sa.CheckConstraint("provision_type IN ('local', 'openai', 'llama-server')",
+                           name='ck_documents_provider'),
         sa.Column('storage_key', sa.Text(), nullable=True),
         sa.Column('filename', sa.Text(), nullable=False),
         sa.Column('content_type', sa.Text(), nullable=False),
@@ -27,32 +52,64 @@ def build_metadata(dimensions=768):
     return metadata
 
 
+def validate_table(connection, table):
+    inspector = sa.inspect(connection)
+    columns = {c['name']: c for c in inspector.get_columns(table.name, schema='public')}
+    incompatible = set(columns) != set(table.c.keys())
+    for column in table.c:
+        actual = columns.get(column.name)
+        if actual is None:
+            continue
+        incompatible |= (str(actual['type'].compile(dialect=connection.dialect)) !=
+                         str(column.type.compile(dialect=connection.dialect)) or
+                         actual['nullable'] != column.nullable)
+    incompatible |= inspector.get_pk_constraint(table.name, schema='public')['constrained_columns'] != [
+        c.name for c in table.primary_key]
+    unique = {tuple(c['column_names']) for c in inspector.get_unique_constraints(table.name, schema='public')}
+    for constraint in table.constraints:
+        if isinstance(constraint, sa.UniqueConstraint):
+            incompatible |= tuple(c.name for c in constraint.columns) not in unique
+    foreign = inspector.get_foreign_keys(table.name, schema='public')
+    for constraint in table.foreign_key_constraints:
+        incompatible |= not any(
+            item['constrained_columns'] == [c.name for c in constraint.columns]
+            and item['referred_table'] == constraint.referred_table.name
+            and item['referred_schema'] in (None, 'public')
+            and item['referred_columns'] == [e.column.name for e in constraint.elements]
+            and item.get('options', {}).get('ondelete') == constraint.ondelete
+            for item in foreign)
+    # Compare PostgreSQL-normalized check expressions against a temporary table
+    # so formatting and PostgreSQL's IN-to-ANY rewrite cannot hide drift.
+    checks = [c for c in table.constraints if isinstance(c, sa.CheckConstraint)]
+    if checks:
+        temporary = sa.Table('_rypiq_validate_' + table.name, sa.MetaData(),
+                             *(sa.Column(c.name, c.type) for c in table.c),
+                             *(sa.CheckConstraint(c.sqltext, name=c.name) for c in checks),
+                             prefixes=['TEMPORARY'], postgresql_on_commit='DROP')
+        temporary.create(connection)
+        expected = {c['name']: c['sqltext'] for c in sa.inspect(connection).get_check_constraints(temporary.name)}
+        actual = {c['name']: c['sqltext'] for c in inspector.get_check_constraints(table.name, schema='public')}
+        incompatible |= expected != actual
+        temporary.drop(connection)
+    if incompatible:
+        raise ValueError(f'Incompatible schema for {table.name}; no tables were changed. '
+                         'Apply a deliberate schema change before retrying.')
+
+
 def initialize_schema(engine, metadata):
-    """Validate existing tables before creating missing ones, in one transaction."""
+    """Create declared tables or atomically upgrade the recognized legacy schema."""
     with engine.begin() as connection:
         connection.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public')
-        inspector = sa.inspect(connection)
-        existing = set(inspector.get_table_names(schema='public'))
-        missing = []
+        existing = set(sa.inspect(connection).get_table_names(schema='public'))
+        missing = [table.name for table in metadata.sorted_tables if table.name not in existing]
+        if 'documents' in existing:
+            connection.exec_driver_sql('LOCK TABLE public.documents IN ACCESS EXCLUSIVE MODE')
+            columns = {c['name']: c for c in sa.inspect(connection).get_columns('documents', schema='public')}
+            if 'application_id' not in columns and 'applications' not in existing:
+                from app.database.upgrade import upgrade_legacy
+                upgrade_legacy(connection, metadata, columns)
         for table in metadata.sorted_tables:
-            if table.name not in existing:
-                missing.append(table.name)
-                continue
-            columns = {column['name']: column for column in inspector.get_columns(table.name, schema='public')}
-            incompatible = set(columns) != set(table.c.keys())
-            for column in table.c:
-                actual = columns.get(column.name)
-                if actual is None:
-                    continue
-                expected_type = str(column.type.compile(dialect=connection.dialect))
-                actual_type = str(actual['type'].compile(dialect=connection.dialect))
-                incompatible |= actual_type != expected_type or actual['nullable'] != column.nullable
-            primary_key = inspector.get_pk_constraint(table.name, schema='public')['constrained_columns']
-            incompatible |= primary_key != [column.name for column in table.primary_key]
-            if incompatible:
-                raise ValueError(
-                    f'Incompatible schema for {table.name}; no tables were changed. '
-                    'Apply a deliberate schema change, or use db:reset to discard database data.'
-                )
+            if table.name in sa.inspect(connection).get_table_names(schema='public'):
+                validate_table(connection, table)
         metadata.create_all(connection)
     return {'tables_created': missing}

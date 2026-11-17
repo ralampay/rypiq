@@ -40,7 +40,7 @@ def test_configurable_dimensions(tmp_path, monkeypatch):
 def test_document_has_model_name_without_discovery_metadata():
     names = {field.name for field in fields(Document)}
     assert 'model_name' in names
-    assert 'embedding_model' not in names
+    assert 'embedding_model' in names
     assert not hasattr(Document, '__persistence__')
 
 

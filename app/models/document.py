@@ -30,3 +30,9 @@ class Document:
 
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
+
+    # Unassigned in-memory documents are permitted; persistence requires ownership.
+    application_id: UUID | None = None
+    embedding_model: str = ""
+    embedding_size: int = 768
+    provision_type: str = "local"

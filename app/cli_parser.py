@@ -1,5 +1,7 @@
 """CLI syntax only; parser construction does not create application resources."""
 import argparse
+import json
+from uuid import UUID
 
 from app.embeddings.config import DEFAULT_MODEL
 
@@ -24,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest='command', required=True)
     for name, description in (
         ('create', 'Create the configured database, vector extension and fixed tables'),
-        ('migrate', 'Create missing tables and validate the fixed schema'),
+        ('migrate', 'Create missing tables, upgrade legacy documents and validate the schema'),
         ('drop', 'Delete the configured database and all of its data'),
         ('reset', 'Delete and recreate the configured database and fixed tables'),
     ):
@@ -57,4 +59,19 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument('path')
     add_chunk_options(ingest, required=True)
     add_model_options(ingest, batching=True)
+    for command in (ingest, search):
+        command.add_argument('--application-id', type=UUID, required=True)
+        command.set_defaults(model=None)
+    create = commands.add_parser('application:create', help='Create an application')
+    create.add_argument('--name', required=True)
+    create.add_argument('--embedding-model', required=True)
+    create.add_argument('--embedding-size', type=int)
+    create.add_argument('--provision-type', choices=['local', 'openai', 'llama-server'], default='local')
+    create.add_argument('--inference-model')
+    create.add_argument('--data', type=json.loads, default={})
+    listing = commands.add_parser('application:list', help='List applications without API keys')
+    listing.add_argument('--limit', type=int, default=100)
+    listing.add_argument('--offset', type=int, default=0)
+    show = commands.add_parser('application:show', help='Show application without API key')
+    show.add_argument('application_id', type=UUID)
     return parser

@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from uuid import UUID
 
 from app.models.document import Document
+from app.models.application import Application
 from app.models.search import SearchResult
 
 
@@ -13,15 +14,15 @@ class DocumentRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get(self, id: UUID) -> Document | None:
+    def get(self, id: UUID, *, application_id: UUID | None = None) -> Document | None:
         raise NotImplementedError
 
     @abstractmethod
-    def update(self, document: Document) -> Document:
+    def update(self, document: Document, *, application_id: UUID | None = None) -> Document:
         raise NotImplementedError
 
     @abstractmethod
-    def delete(self, id: UUID) -> bool:
+    def delete(self, id: UUID, *, application_id: UUID | None = None) -> bool:
         raise NotImplementedError
 
     @abstractmethod
@@ -29,6 +30,7 @@ class DocumentRepository(ABC):
         self,
         limit: int = 100,
         offset: int = 0,
+        *, application_id: UUID | None = None,
     ) -> list[Document]:
         raise NotImplementedError
 
@@ -38,5 +40,28 @@ class DocumentRepository(ABC):
         embedding: list[float],
         limit: int = 10,
         filters: dict | None = None,
+        *, application_id: UUID,
     ) -> list[SearchResult]:
+        raise NotImplementedError
+
+
+class ApplicationRepository(ABC):
+    @abstractmethod
+    def create(self, application: Application) -> Application:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get(self, id: UUID) -> Application | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def list(self, limit: int = 100, offset: int = 0) -> list[Application]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def update(self, application: Application) -> Application:
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete(self, id: UUID) -> bool:
         raise NotImplementedError

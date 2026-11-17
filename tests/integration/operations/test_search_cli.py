@@ -1,7 +1,7 @@
 import json
 import sys
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -41,6 +41,8 @@ def test_search_cli_uses_provider_and_repository(
             "rypiq",
             "search",
             "What is RAG?",
+            "--application-id",
+            "00000000-0000-0000-0000-000000000001",
             "--limit",
             "4",
             "--model",
@@ -56,6 +58,7 @@ def test_search_cli_uses_provider_and_repository(
     assert output[0]["distance"] == 0.23
 
     assert received['search'] == {
+        'application_id': UUID(int=1),
         'query': 'What is RAG?', 'limit': 4, 'model_path': 'test.gguf',
         'context_size': 2048, 'gpu_layers': 0,
     }
@@ -92,6 +95,8 @@ def test_ingest_cli_uses_existing_operation(
             "rypiq",
             "ingest",
             "samples/sample.txt",
+            "--application-id",
+            "00000000-0000-0000-0000-000000000001",
             "--chunk_size",
             "100",
             "--stride",

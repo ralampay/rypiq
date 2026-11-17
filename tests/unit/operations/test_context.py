@@ -2,6 +2,8 @@ from types import SimpleNamespace
 from contextlib import contextmanager
 
 import pytest
+from unittest.mock import Mock
+from app.models.application import Application
 
 from app import context as context_module
 from app import cli, application
@@ -32,17 +34,20 @@ def test_context_setup_failure_releases_database(monkeypatch):
 
 def test_search_cli_failure_releases_database(monkeypatch):
     calls = []
-    context = context_module.ApplicationContext(documents='repository', storage='storage',
-        database=SimpleNamespace(close=lambda: calls.append('closed')))
+    value = Application(name='test', embedding_model='fake', embedding_size=3)
+    backend = Mock()
+    backend.applications.return_value.get.return_value = value
     @contextmanager
-    def open_repository():
-        with context:
-            yield context.documents
-    monkeypatch.setattr(application, 'open_document_repository', open_repository)
+    def open_backend():
+        try:
+            yield backend
+        finally:
+            calls.append('closed')
+    monkeypatch.setattr(application, 'get_database', open_backend)
     def fail(**kwargs):
         raise ValueError('bad model')
     monkeypatch.setattr(application, 'get_embedding_provider', fail)
-    monkeypatch.setattr('sys.argv', ['rypiq', 'search', 'hello'])
+    monkeypatch.setattr('sys.argv', ['rypiq', 'search', 'hello', '--application-id', str(value.id)])
     with pytest.raises(SystemExit):
         cli.main()
     assert calls == ['closed']

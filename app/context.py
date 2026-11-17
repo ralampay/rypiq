@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from app.database.base import DatabaseBackend
 from app.database.factory import get_database
-from app.database.repositories.base import DocumentRepository
+from app.database.repositories.base import DocumentRepository, ApplicationRepository
 from app.storage.base import ObjectStorage
 from app.storage.factory import get_storage
 
@@ -13,6 +13,10 @@ class ApplicationContext:
     documents: DocumentRepository
     storage: ObjectStorage
     database: DatabaseBackend = field(repr=False)
+
+    @property
+    def applications(self) -> ApplicationRepository:
+        return self.database.applications()
 
     def close(self):
         self.database.close()
