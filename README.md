@@ -123,7 +123,7 @@ Replace `models/your-chat-model.gguf` with your existing inference model. Models
 | Syntax | Positional arguments | Behavior |
 | --- | --- | --- |
 | `rypiq process text CONTENT` | Literal text, quoted if it contains spaces | Return text, character count, and word count. |
-| `rypiq process text-file PATH --chunk_size N --stride N` | UTF-8 `.txt` file path | Split a file into chunks and return their text and offsets. |
+| `rypiq process text-file PATH --chunk_size N --stride N` | Supported document path | Split a file into chunks and return their text and offsets. |
 
 | Option | Requirement | Meaning |
 | --- | --- | --- |
@@ -135,9 +135,35 @@ rypiq process text 'Hello world'
 rypiq process text-file samples/sample.txt --chunk_size 500 --stride 400
 ```
 
+### Supported document files
+
+Processing, embedding, and ingestion accept `.txt`, `.pdf`, `.docx`, `.xlsx`, `.xls`, `.xlsm`, and `.pptx` (case-insensitive). The existing `text-file` CLI argument and Python entrypoint names apply to all these formats.
+
+| Format | Extracted content |
+| --- | --- |
+| TXT | UTF-8 text, unchanged. |
+| PDF | Embedded page text in page order; no OCR for scans or images. |
+| DOCX | Body paragraphs and tables, including nested tables, in document order. |
+| XLSX / XLSM / XLS | All worksheets, including hidden sheets, in workbook order, with worksheet names. |
+| PPTX | Slide text and tables, including grouped shapes, in slide order and stored shape order. |
+
+Paragraphs and rows are separated by newlines and table cells by tabs. Empty rows and trailing empty cells are omitted; interior empty cells retain their positions. Spreadsheet dates use ISO format, booleans use `true`/`false`, and numbers use their underlying values rather than Excel display formatting. Empty worksheets contribute no text.
+
+Excel formulas use saved results only: calculate and save the workbook in Excel before ingestion. Missing cached results are omitted. Macros are never executed, formulas are not evaluated, and external links are not refreshed. Word headers, footers, comments and floating text boxes, PowerPoint speaker notes and chart data, and text inside images are excluded. PDF extraction follows the parser's text order and does not reconstruct complex visual layouts.
+
+Offsets refer to the extracted text, not positions within the original binary file. Processing can return zero chunks; embedding and ingestion reject files without usable text. Encrypted and malformed documents fail with a format-specific error. Ingestion stores the original file unchanged.
+
+Install the project dependencies to obtain the document readers; no separate extraction service or model is needed.
+
+```sh
+rypiq process text-file report.pdf --chunk_size 500 --stride 400
+rypiq embed text-file presentation.pptx --chunk_size 500 --stride 400
+rypiq ingest workbook.xlsx --application-id APPLICATION_UUID --chunk_size 500 --stride 400
+```
+
 ### Embedding commands
 
-`rypiq embed text-file PATH --chunk_size N --stride N` embeds a UTF-8 `.txt` file with a local model. It requires neither an application nor a database and does not store documents.
+`rypiq embed text-file PATH --chunk_size N --stride N` embeds a supported document with a local model. It requires neither an application nor a database and does not store documents.
 
 | Option | Default or requirement | Meaning |
 | --- | --- | --- |
@@ -158,7 +184,7 @@ rypiq embed text-file samples/sample.txt --chunk_size 500 --stride 400 \
 
 | Syntax | Positional argument | Behavior |
 | --- | --- | --- |
-| `rypiq ingest PATH --application-id APPLICATION_UUID --chunk_size N --stride N` | UTF-8 `.txt` file path | Save the original file, embed its chunks, and persist application-owned documents. |
+| `rypiq ingest PATH --application-id APPLICATION_UUID --chunk_size N --stride N` | Supported document path | Save the original file, embed its chunks, and persist application-owned documents. |
 | `rypiq search QUERY --application-id APPLICATION_UUID` | Search text, quoted if it contains spaces | Return matching documents from that application with cosine distances; lower is closer. |
 
 Both commands require the database and use the application's configured provider (`local`, `openai`, or `llama-server`). Only ingestion requires object storage.

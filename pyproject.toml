@@ -11,6 +11,11 @@ requires-python = ">= 3.14.3"
 
 dependencies = [
   "python-dotenv",
+  "pypdf>=6,<7",
+  "python-docx>=1.2,<2",
+  "openpyxl>=3.1,<4",
+  "xlrd>=2,<3",
+  "python-pptx>=1,<2",
   "llama-cpp-python",
   "openai>=2,<3",
   "PyYAML>=6,<7",

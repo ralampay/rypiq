@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.processors.base import BaseProcessor
+from app.processors.extraction import extract_file
 
 class TextFileProcessor(BaseProcessor):
     def __init__(self, chunk_size: int, stride: int):
@@ -24,10 +25,7 @@ class TextFileProcessor(BaseProcessor):
     def process(self, content: str) -> dict:
         path = Path(content)
 
-        if path.suffix.lower() != ".txt":
-            raise ValueError("Only .txt files are supported")
-
-        text = path.read_text(encoding="utf-8")
+        text = extract_file(path)
 
         chunks = []
 

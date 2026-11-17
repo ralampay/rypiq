@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     embed = commands.add_parser('embed', help='Generate embeddings from a file')
     embed.add_argument('medium', choices=['text-file'])
-    embed.add_argument('content', help='Path to a UTF-8 .txt file')
+    embed.add_argument('content', help='Path to a .txt, .pdf, .docx, .xlsx, .xls, .xlsm, or .pptx file')
     add_chunk_options(embed, required=True)
     add_model_options(embed, batching=True)
     embed.add_argument('--output', help='Write full JSON to this path')
@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument('--limit', type=int, default=5)
     add_model_options(search, batching=False)
 
-    ingest = commands.add_parser('ingest', help='Store, embed and index a text file')
+    ingest = commands.add_parser('ingest', help='Store, embed and index a supported document')
     ingest.add_argument('path')
     add_chunk_options(ingest, required=True)
     add_model_options(ingest, batching=True)
