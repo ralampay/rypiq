@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.processors import extraction
-from app.operations.text_file import process_text_file
+from app.operations.processing.file import process_text_file
 
 
 @pytest.mark.parametrize('suffix', extraction.SUPPORTED_EXTENSIONS)

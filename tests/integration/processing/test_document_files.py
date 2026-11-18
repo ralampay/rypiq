@@ -17,8 +17,8 @@ from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
 from app.cli import main
 from app.application import embed_file
 from app.models.application import Application
-from app.operations.document import IngestDocument
-from app.operations.text_file import process_text_file
+from app.operations.documents.ingest import IngestDocument
+from app.operations.processing.file import process_text_file
 
 
 def pdf(path, *, blank=False, encrypted=False):
@@ -149,7 +149,7 @@ def test_embedding_and_ingestion(document_file):
 def test_corrupt_file_fails_before_embedding_or_writes(tmp_path, suffix):
     path = tmp_path / ('bad.' + suffix)
     path.write_bytes(b'not a document')
-    factory, storage, repository, provider = Mock(), Mock(), Mock(), Mock()
+    factory, storage, repository, provider = Mock(), Mock(), Mock(), Mock(model_name='fake.gguf')
     with pytest.raises(ValueError, match='Cannot extract'):
         embed_file(path=str(path), chunk_size=10, stride=10, provider_factory=factory)
     factory.assert_not_called()

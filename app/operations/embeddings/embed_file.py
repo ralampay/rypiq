@@ -1,19 +1,8 @@
-"""Embedding workflows with caller-supplied providers and no configuration lookup."""
+"""Embedding workflows using caller-owned providers."""
 import math
-from collections.abc import Callable
-from typing import TYPE_CHECKING
-from uuid import UUID
-
-from app.database.repositories.base import DocumentRepository
-from app.models.document import Document
-from app.services._validation import validate_id
 
 from app.embeddings.base import EmbeddingProvider
-from app.embeddings.config import DEFAULT_MODEL
-from app.operations.text_file import process_text_file
-
-if TYPE_CHECKING:
-    from app.providers.session import LocalModelSession
+from app.operations.processing.file import process_text_file
 
 DEFAULT_PREFIX = 'title: none | text: '
 
@@ -67,29 +56,3 @@ class EmbedTextFile:
     def execute(self) -> dict:
         document = prepare_text_file(self.path, self.chunk_size, self.stride, self.batch_size)
         return embed_chunks(document, self.provider, self.batch_size, self.document_prefix)
-
-
-def embed_text_file(path: str, chunk_size: int, stride: int,
-                    model_path: str = DEFAULT_MODEL, context_size: int | None = None,
-                    gpu_layers: int | None = None, batch_size: int = 1,
-                    provider_factory: Callable | None = None, document_prefix: str | None = None, *,
-                    model_session: 'LocalModelSession | None' = None) -> dict:
-    """Compatibility entrypoint; borrow session models or own per-call providers."""
-    from app.application import embed_file
-    return embed_file(path=path, chunk_size=chunk_size, stride=stride,
-                      model_path=model_path, context_size=context_size,
-                      gpu_layers=gpu_layers, batch_size=batch_size,
-                      provider_factory=provider_factory, document_prefix=document_prefix, model_session=model_session)
-
-
-def get_embedding(*, embedding_id: UUID, repository: DocumentRepository) -> Document:
-    validate_id(embedding_id)
-    document = repository.get(embedding_id)
-    if document is None:
-        raise KeyError(f'Embedding {embedding_id} not found')
-    return document
-
-
-def delete_embedding(*, embedding_id: UUID, repository: DocumentRepository) -> bool:
-    validate_id(embedding_id)
-    return repository.delete(embedding_id)

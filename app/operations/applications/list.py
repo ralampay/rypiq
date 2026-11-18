@@ -1,22 +1,6 @@
-"""Application operations reusable by CLI and future API entrypoints."""
-from uuid import UUID
-
 from app.database.repositories.base import ApplicationRepository
 from app.models.application import Application
 from app.services.application import ApplicationService
-
-
-class CreateApplication:
-    def __init__(self, *, application: Application, repository: ApplicationRepository) -> None:
-        self.application = application
-        self.repository = repository
-
-    def execute(self) -> Application:
-        return ApplicationService(repository=self.repository).create(self.application)
-
-
-def get_application(*, application_id: UUID, repository: ApplicationRepository) -> Application:
-    return ApplicationService(repository=repository).get(application_id)
 
 
 def list_applications(*, repository: ApplicationRepository, limit: int = 100,
@@ -32,7 +16,3 @@ def list_all_applications(*, repository: ApplicationRepository) -> list[Applicat
         applications.extend(page)
         if len(page) < 100:
             return applications
-
-
-def delete_application(*, application_id: UUID, repository: ApplicationRepository) -> bool:
-    return ApplicationService(repository=repository).delete(application_id)

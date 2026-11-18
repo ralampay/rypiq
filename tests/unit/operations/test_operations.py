@@ -2,10 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.operations.process import (
-    PROCESSORS,
-    process_content,
-)
+from app.operations.processing.content import PROCESSORS, process_content
 
 @pytest.mark.unit
 def test_processor_registry():

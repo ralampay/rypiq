@@ -29,10 +29,3 @@ def save_file(
         key=key,
         content_type=content_type,
     )
-
-
-def list_files(
-    storage: ObjectStorage,
-    prefix: str = "",
-) -> list[StoredObject]:
-    return storage.list(prefix=prefix)

@@ -1,7 +1,7 @@
 import pytest
 
 from app.storage.providers.local import LocalStorage
-from app.operations.storage import save_file
+from app.operations.storage.save import save_file
 
 
 @pytest.fixture

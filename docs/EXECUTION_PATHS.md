@@ -35,7 +35,7 @@ flowchart TD
 `applications:list` defaults to a text table and accepts `--output text|json` as a
 format selector. Its handler projects only IDs and names from
 `application.enumerate_all_applications()`, which owns one database context and
-calls `operations.application.list_all_applications()`. The operation reads
+calls `operations.applications.list.list_all_applications()`. The operation reads
 100-record pages through the existing repository until exhausted. Presentation
 happens only after the complete listing succeeds; failures release the database
 without printing partial results. The Python `enumerate_applications()` pagination API remains available.
@@ -110,10 +110,10 @@ Use `EmbedTextFile`, `IngestDocument`, or `SearchDocuments` when the caller alre
 ```python
 from uuid import UUID
 from app.application import open_embedding_provider
-from app.operations.application import get_application
+from app.operations.applications.get import get_application
 from app.context import create_context
-from app.operations.document import IngestDocument
-from app.operations.search import SearchDocuments
+from app.operations.documents.ingest import IngestDocument
+from app.operations.documents.search import SearchDocuments
 
 with create_context() as context:
     application = get_application(
@@ -138,6 +138,34 @@ Constructors only capture inputs. Execution performs validation and effects. Com
 
 For database-only library work, prefer `with app.db.open_document_repository() as repository:` or `with get_database() as backend:`. `DatabaseCommands(backend)` can reuse an already-owned backend without loading configuration or closing it. The older `get_document_repository()` factory remains available, but its caller must call `repository.close()`.
 
+## Operation namespaces and import migration
+
+Operations now use domain packages and action modules. The former flat import paths
+have been removed; Python callers must update their imports. Callable signatures,
+return values, CLI names, and JSON output are unchanged.
+
+| Former module | New module and exported operations |
+| --- | --- |
+| `app.operations.application` | `app.operations.applications.create` (`CreateApplication`), `.get` (`get_application`), `.list` (`list_applications`, `list_all_applications`), `.delete` (`delete_application`) |
+| `app.operations.document` | `app.operations.documents.ingest` (`IngestDocument`), `.persist` (`persist_document`); `app.application` (`ingest_document`) |
+| `app.operations.search` | `app.operations.documents.search` (`SearchDocuments`, `semantic_search`) |
+| `app.operations.embedding` | `app.operations.embeddings.embed_file` (`EmbedTextFile`, `prepare_text_file`, `embed_chunks`, `DEFAULT_PREFIX`), `.get` (`get_embedding`), `.delete` (`delete_embedding`); `app.application` (`embed_text_file`) |
+| `app.operations.process` | `app.operations.processing.content` (`process_content`, `PROCESSORS`) |
+| `app.operations.text_file` | `app.operations.processing.file` (`process_text_file`) |
+| `app.operations.storage` | `app.operations.storage.save` (`save_file`), `.list` (`list_files`) |
+| `app.operations.chat` | `app.operations.inference.chat` (`Chat`) |
+
+Import from action modules directly; package initializers do not re-export symbols.
+For configured calls, use `from app.application import embed_text_file, ingest_document`.
+These functions preserve their existing behavior, including local model session
+borrowing and the local-only restriction on `ingest_document()`.
+
+New operations belong to their domain package. Document ingestion and search
+coordinate document workflows; embeddings contains vector generation and individual
+embedding-record access. Processing extracts/chunks content, storage manages files,
+and inference contains chat. Keep shared persistence compensation in
+`documents.persist`, and dependency construction/cleanup in `app.application`.
+
 ## Compatibility and extension points
 
 - The `embed` and `ingest` CLI commands have been removed in favor of `embeddings:create`; Python `embed_file()` and `ingest_file()` remain supported. `embed_text_file()` retains its signature. `ingest_document()` and `semantic_search()` now require a keyword `application` argument; their result shapes remain unchanged. Configured ingestion/search require `application_id`. Application creation/list/show delegate to reusable operations and repositories; no operation receives CLI namespaces or owns borrowed resources.
@@ -149,7 +177,7 @@ See [code conventions](CODE_CONVENTIONS.md) for layer responsibilities and [AGEN
 
 ## Failures and ownership
 
-Ingestion validates embedding results before storing the source file. Repository writes still commit individually; the command does not invent a cross-system transaction. If persistence fails, compensation attempts every record created by that invocation and then its source object. Cleanup failures are added as notes to the original exception instead of replacing it or stopping remaining cleanup.
+Injected ingestion rejects a mismatched provider model before reading or embedding the file. Ingestion validates embedding results before storing the source file. Repository writes still commit individually; the command does not invent a cross-system transaction. If persistence fails, compensation attempts every record created by that invocation and then its source object. Cleanup failures are added as notes to the original exception instead of replacing it or stopping remaining cleanup.
 
 The configured embedding context closes the provider it constructs. A cleanup failure preserves any active operation error; if the operation finished successfully but cleanup fails, a distinct error reports that partial outcome. Injected providers remain caller-owned.
 

@@ -5,6 +5,7 @@ PROCESSORS: dict[str, type[BaseProcessor]] = {
     "text": TextProcessor,
 }
 
+
 def process_content(medium: str, content: str) -> dict:
     processor_class = PROCESSORS.get(medium)
 

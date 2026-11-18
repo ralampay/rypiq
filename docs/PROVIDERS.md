@@ -170,7 +170,7 @@ result = chat(
 models = list_models()  # Catalog only.
 ```
 
-For caller-owned resources, inject an inference provider into `app.operations.chat.Chat` and call `execute()`. Ingestion and search retain their existing injected operations and configured entrypoints. Existing result shapes and document embedding snapshots remain unchanged. `ingest_document()` remains the legacy local composition helper; use `IngestDocument` or configured `ingest_file()` for remote applications.
+For caller-owned resources, inject an inference provider into `app.operations.inference.chat.Chat` and call `execute()`. Ingestion and search retain their existing injected operations and configured entrypoints. Existing result shapes and document embedding snapshots remain unchanged. `app.application.ingest_document()` remains the legacy local composition helper; use `IngestDocument` or configured `ingest_file()` for remote applications.
 
 ## Validation
 

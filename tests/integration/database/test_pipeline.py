@@ -9,7 +9,7 @@ import yaml
 
 from app.database.backends.postgresql import PostgreSQLBackend
 from app.models.application import Application
-from app.operations import document as document_operation
+from app import application as application_api
 from app.storage.providers.local import LocalStorage
 
 
@@ -23,8 +23,8 @@ def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path
     result = {'model': 'example.gguf', 'chunks': [
         {'text': 'example', 'embedding': [1., 0., 0.], 'index': 0, 'start': 0, 'end': 7},
     ]}
-    monkeypatch.setattr(document_operation, 'embed_text_file', lambda **kwargs: result)
-    documents = document_operation.ingest_document(str(source), storage, repository, 7, 7, application=application)
+    monkeypatch.setattr(application_api, 'embed_text_file', lambda **kwargs: result)
+    documents = application_api.ingest_document(str(source), storage, repository, 7, 7, application=application)
     stored = repository.get(documents[0].id)
     assert stored.model_name == 'example.gguf'
     assert (storage.root / stored.storage_key).read_text() == source.read_text()
@@ -32,7 +32,7 @@ def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path
     before = [item.key for item in storage.list()]
     result['chunks'].append({'text': 'invalid', 'embedding': [1., 0.], 'index': 1, 'start': 7, 'end': 9})
     with pytest.raises(ValueError, match='Embedding'):
-        document_operation.ingest_document(str(source), storage, repository, 7, 7, application=application)
+        application_api.ingest_document(str(source), storage, repository, 7, 7, application=application)
     assert [item.id for item in repository.list()] == [stored.id]
     assert [item.key for item in storage.list()] == before
 

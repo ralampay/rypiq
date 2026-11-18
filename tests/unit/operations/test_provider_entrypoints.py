@@ -211,7 +211,7 @@ def test_chat_cli_without_system_and_model_list_serialization(monkeypatch, capsy
 
 def test_embedding_compatibility_function_honors_catalog_defaults(tmp_path, monkeypatch):
     import yaml
-    from app.operations.embedding import embed_text_file
+    from app.application import embed_text_file
     source = tmp_path / 'input.txt'
     source.write_text('hello')
     path = tmp_path / 'models.yml'
@@ -226,20 +226,19 @@ def test_embedding_compatibility_function_honors_catalog_defaults(tmp_path, monk
 
 
 def test_legacy_ingestion_honors_saved_runtime_options(tmp_path, monkeypatch):
-    from app.operations import document
     source = tmp_path / 'input.txt'
     source.write_text('hello')
     value = Application(name='a', embedding_model='weights.gguf', embedding_size=2,
                         data={'provider_config': {'embedding': {'context_size': 4096, 'gpu_layers': 2}}})
     fake = Mock(return_value={'model': 'weights.gguf', 'chunks': []})
-    monkeypatch.setattr(document, 'embed_text_file', fake)
-    document.ingest_document(str(source), Mock(), Mock(), 10, 10, application=value)
+    monkeypatch.setattr(application, 'embed_text_file', fake)
+    application.ingest_document(str(source), Mock(), Mock(), 10, 10, application=value)
     assert fake.call_args.kwargs['context_size'] == 4096
     assert fake.call_args.kwargs['gpu_layers'] == 2
 
 
 def test_legacy_local_composition_rejects_remote_before_effects():
-    from app.operations.document import ingest_document
+    from app.application import ingest_document
     storage, repository = Mock(), Mock()
     value = Application(name='a', embedding_model='remote', provision_type='openai')
     with pytest.raises(ValueError, match='injected provider'):
@@ -249,8 +248,8 @@ def test_legacy_local_composition_rejects_remote_before_effects():
 
 @pytest.mark.parametrize('provider_type', ['local', 'openai', 'llama-server'])
 def test_mismatched_provider_identity_never_persists_or_searches(tmp_path, provider_type):
-    from app.operations.document import IngestDocument
-    from app.operations.search import SearchDocuments
+    from app.operations.documents.ingest import IngestDocument
+    from app.operations.documents.search import SearchDocuments
     source = tmp_path / 'file.txt'
     source.write_text('hello')
     value = Application(name='a', embedding_model='configured', provision_type=provider_type, embedding_size=2)
@@ -262,7 +261,8 @@ def test_mismatched_provider_identity_never_persists_or_searches(tmp_path, provi
                        embedding_provider=model, storage=storage, repository=repository).execute()
     storage.save.assert_not_called()
     repository.create.assert_not_called()
-    model.embed.reset_mock()
+    model.embed.assert_not_called()
+    model.close.assert_not_called()
     with pytest.raises(ValueError, match='model must match'):
         SearchDocuments(query='hello', application=value, embedding_provider=model, repository=repository).execute()
     model.embed.assert_not_called()
@@ -307,8 +307,7 @@ def test_create_snapshots_direct_local_paths(tmp_path, monkeypatch, configured_b
 
 def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, monkeypatch, configured_backend):
     from app.providers.session import LocalModelSession
-    from app.operations.embedding import embed_text_file
-    from app.operations.document import ingest_document
+    from app.application import embed_text_file, ingest_document
     from app.providers.config import settings_for
     from app.storage.providers.local import LocalStorage
 

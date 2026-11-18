@@ -6,9 +6,10 @@ from app.providers.contracts import ChatMessage
 from app import application
 from app.models.document import Document
 from app.database import commands as database_commands
-from app.operations.process import process_content
-from app.operations.storage import list_files, save_file
-from app.operations.text_file import process_text_file
+from app.operations.processing.content import process_content
+from app.operations.storage.list import list_files
+from app.operations.storage.save import save_file
+from app.operations.processing.file import process_text_file
 from app.storage.factory import get_storage
 from app.storage.models import StoredObject
 

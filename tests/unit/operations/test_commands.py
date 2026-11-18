@@ -4,7 +4,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.operations import document, embedding, search
+from app.operations.documents import ingest as document
+from app.operations.embeddings import embed_file as embedding
+from app.operations.documents import search
 from app.models.document import Document
 from app.models.application import Application
 

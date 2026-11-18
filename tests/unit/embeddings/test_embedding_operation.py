@@ -2,7 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.operations.embedding import embed_text_file
+from app.application import embed_text_file
 
 @pytest.mark.unit
 def test_embed_file_preserves_chunk_offsets(sample_text_file):

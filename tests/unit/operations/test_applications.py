@@ -3,9 +3,10 @@ from unittest.mock import Mock
 import pytest
 
 from app.models.application import Application
-from app.operations.application import CreateApplication, get_application
-from app.operations.document import IngestDocument
-from app.operations.search import SearchDocuments
+from app.operations.applications.create import CreateApplication
+from app.operations.applications.get import get_application
+from app.operations.documents.ingest import IngestDocument
+from app.operations.documents.search import SearchDocuments
 
 
 @pytest.mark.parametrize('changes', [

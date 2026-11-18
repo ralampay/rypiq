@@ -9,26 +9,31 @@ from app.database.factory import get_database
 from app.models.application import Application, validate_application, chunking_settings, with_chunking_options
 from app.services.application import ApplicationService
 from app.providers.catalog import load_catalog, resolve_application, resolve_model, catalog_models
-from app.providers.config import ProviderSettings, settings_for, validate_options, model_identity
+from app.providers.config import ProviderSettings, settings_for, validate_options, model_identity, embedding_preprocessing
 from app.providers.contracts import ChatMessage, ChatResult, ModelInfo, InferenceProvider
 from app.providers.factory import open_provider
 from app.providers.session import LocalModelSession
 from app.providers.discovery import merge_models
-from app.operations.chat import Chat
+from app.operations.inference.chat import Chat
 from app.providers.normalization import validate_chat
-from app.operations.application import (
-    CreateApplication, get_application, list_applications, list_all_applications,
-    delete_application as delete_application_record,
-)
+from app.operations.applications.create import CreateApplication
+from app.operations.applications.get import get_application
+from app.operations.applications.list import list_applications, list_all_applications
+from app.operations.applications.delete import delete_application as delete_application_record
 
 from app.embeddings.base import EmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
 from app.embeddings.factory import get_embedding_provider
 from app.models.document import Document
+from app.database.repositories.base import DocumentRepository
+from app.storage.base import ObjectStorage
+from app.operations.documents.persist import persist_document
 from app.models.search import SearchResult
-from app.operations.document import IngestDocument
-from app.operations.embedding import embed_chunks, prepare_text_file, get_embedding, delete_embedding as delete_embedding_record
-from app.operations.search import SearchDocuments
+from app.operations.documents.ingest import IngestDocument
+from app.operations.embeddings.embed_file import embed_chunks, prepare_text_file
+from app.operations.embeddings.get import get_embedding
+from app.operations.embeddings.delete import delete_embedding as delete_embedding_record
+from app.operations.documents.search import SearchDocuments
 
 
 def _catalog_for(*models: str | None) -> dict:
@@ -263,3 +268,32 @@ def list_models(*, application_id: UUID | None = None, discover: bool = False) -
             with open_provider(settings) as provider:
                 discovered.extend(provider.list_models())
     return merge_models(configured, discovered)
+
+
+def embed_text_file(path: str, chunk_size: int, stride: int,
+                    model_path: str = DEFAULT_MODEL, context_size: int | None = None,
+                    gpu_layers: int | None = None, batch_size: int = 1,
+                    provider_factory: Callable | None = None, document_prefix: str | None = None, *,
+                    model_session: 'LocalModelSession | None' = None) -> dict:
+    """Compatibility entrypoint; borrow session models or own per-call providers."""
+    return embed_file(path=path, chunk_size=chunk_size, stride=stride,
+                      model_path=model_path, context_size=context_size,
+                      gpu_layers=gpu_layers, batch_size=batch_size,
+                      provider_factory=provider_factory, document_prefix=document_prefix, model_session=model_session)
+
+
+def ingest_document(path: str, storage: ObjectStorage, repository: DocumentRepository,
+                    chunk_size: int, stride: int, *, application: Application,
+                    model_session: 'LocalModelSession | None' = None, **embedding_options) -> list[Document]:
+    """Compatibility entrypoint: compose embedding, then use the shared persistence operation."""
+    validate_application(application)
+    if application.provision_type != "local":
+        raise ValueError("Use IngestDocument with an injected provider for remote embeddings")
+    settings = settings_for(application, "embedding")
+    embedding_options.setdefault("context_size", settings.context_size)
+    embedding_options.setdefault("gpu_layers", settings.gpu_layers)
+    embedding_options.setdefault("model_path", application.embedding_model)
+    embedding_options.setdefault("document_prefix", embedding_preprocessing(application.data, application.provision_type, application.embedding_size)[0])
+    result = embed_text_file(path=path, chunk_size=chunk_size, stride=stride,
+                             model_session=model_session, **embedding_options)
+    return persist_document(path, storage, repository, chunk_size, stride, result, application)

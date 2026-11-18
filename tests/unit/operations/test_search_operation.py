@@ -1,6 +1,6 @@
 import pytest
 
-from app.operations.search import semantic_search
+from app.operations.documents.search import semantic_search
 from app.models.application import Application
 
 APPLICATION = Application(name="test", embedding_model="fake", embedding_size=3)

@@ -1,5 +1,6 @@
 from app.processors.text_file import TextFileProcessor
 
+
 def process_text_file(
     path: str,
     chunk_size: int,

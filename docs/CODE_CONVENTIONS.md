@@ -65,8 +65,9 @@ A command may delegate to an existing function to avoid duplicating behavior. If
 ### Placement and naming
 
 - Keep business operations under `app/operations/`, using `snake_case` modules and `PascalCase` classes with verb-based names.
-- The current code uses flat domain modules, including `document.py`, `search.py`, and `storage.py`. Extend an appropriate existing module for a small addition.
-- When a feature accumulates multiple substantial operations, use a feature package such as `app/operations/documents/` and action modules such as `ingest.py`. Make such a move deliberately, preserve public imports where required, and do not create both a module and a package with the same name.
+- Group operations into domain packages: `applications`, `documents`, `embeddings`, `processing`, `storage`, and `inference`. Place each action in a descriptive module, such as `documents/ingest.py`; keep closely related helpers with their action.
+- Import directly from action modules. Package `__init__.py` files do not eagerly re-export operations. Add new actions to their owning domain rather than extending a flat catch-all module.
+- Keep configured Python entrypoints, including `embed_text_file()` and `ingest_document()`, in `app.application`. Operations must not import that composition layer. See [namespace migration](EXECUTION_PATHS.md#operation-namespaces-and-import-migration) for the import map.
 - Infrastructure command facades can stay in their subsystem. The existing `DatabaseCommands` exposes `create()`, `migrate()`, `drop()`, and `reset()` for explicit CLI dispatch. It is not a single-use business command and does not need an `execute()` retrofit.
 - Use type annotations for new public interfaces, explicit keyword arguments for dependencies, and existing repository/provider contracts. Follow nearby formatting; avoid unrelated repository-wide formatting changes.
 
@@ -189,8 +190,8 @@ Object storage and PostgreSQL do not share a transaction. Multi-system operation
 | Configured Python entrypoints | [application facade](../app/application.py), [database-only context](../app/db.py) |
 | Resource composition and cleanup | [application context](../app/context.py), [context tests](../tests/unit/operations/test_context.py) |
 | Factory construction | [database](../app/database/factory.py), [storage](../app/storage/factory.py), [embeddings](../app/embeddings/factory.py) |
-| Commands and compatibility functions | [ingestion](../app/operations/document.py), [search](../app/operations/search.py) |
-| Small operations and handler selection | [text-file processing](../app/operations/text_file.py), [processor dispatch](../app/operations/process.py) |
+| Commands and compatibility functions | [ingestion](../app/operations/documents/ingest.py), [search](../app/operations/documents/search.py) |
+| Small operations and handler selection | [text-file processing](../app/operations/processing/file.py), [processor dispatch](../app/operations/processing/content.py) |
 | Repository contract and SQL implementation | [contract](../app/database/repositories/base.py), [PostgreSQL implementation](../app/database/repositories/postgresql.py) |
 | Explicit schema and domain model | [schema](../app/database/schema.py), [Document](../app/models/document.py) |
 | Unit and integration testing examples | [search unit tests](../tests/unit/operations/test_search_operation.py), [pipeline integrations](../tests/integration/database/test_pipeline.py) |
