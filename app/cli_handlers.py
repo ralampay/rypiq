@@ -4,6 +4,7 @@ from dataclasses import asdict, replace
 from app.providers.contracts import ChatMessage
 
 from app import application
+from app.models.document import Document
 from app.database import commands as database_commands
 from app.operations.process import process_content
 from app.operations.storage import list_files, save_file
@@ -26,11 +27,6 @@ def process(args: Namespace) -> dict:
     return process_content(medium=args.medium, content=args.content)
 
 
-def embed(args: Namespace) -> dict:
-    return application.embed_file(path=args.content, chunk_size=args.chunk_size,
-                                  stride=args.stride, batch_size=args.batch_size, **model_options(args))
-
-
 def stored_object(value: StoredObject) -> dict:
     return dict(key=value.key, size=value.size, content_type=value.content_type, checksum=value.checksum)
 
@@ -50,10 +46,28 @@ def search(args: Namespace) -> list[dict]:
             for match in matches]
 
 
-def ingest(args: Namespace) -> dict:
-    documents = application.ingest_file(application_id=args.application_id, path=args.path, chunk_size=args.chunk_size,
-                                       stride=args.stride, batch_size=args.batch_size, **model_options(args))
-    return dict(indexed_chunks=len(documents), storage_key=documents[0].storage_key if documents else None)
+def embedding_json(value: Document) -> dict:
+    result = asdict(value)
+    for key in ('id', 'application_id', 'source_id'):
+        result[key] = str(result[key]) if result[key] is not None else None
+    for key in ('created_at', 'updated_at'):
+        result[key] = result[key].isoformat()
+    return result
+
+
+def embeddings_create(args: Namespace) -> dict:
+    documents = application.create_embeddings(application_id=args.application_id, path=args.path,
+                                              batch_size=args.batch_size)
+    return dict(indexed_chunks=len(documents), storage_key=documents[0].storage_key if documents else None,
+                chunks=[embedding_json(value) for value in documents])
+
+
+def embeddings_show(args: Namespace) -> dict:
+    return embedding_json(application.show_embedding(embedding_id=args.id))
+
+
+def embeddings_delete(args: Namespace) -> dict:
+    return dict(deleted=application.delete_embedding(embedding_id=args.id))
 
 
 def database(args: Namespace) -> dict:
@@ -73,7 +87,8 @@ def application_json(value, *, include_key=False):
 def application_create(args: Namespace) -> dict:
     value = application.create_application(name=args.name, embedding_model=args.embedding_model,
                                           embedding_size=args.embedding_size, provision_type=args.provision_type,
-                                          inference_model=args.inference_model, data=args.data)
+                                          inference_model=args.inference_model, data=args.data,
+                                          chunk_size=args.chunk_size, stride=args.stride)
     return application_json(value, include_key=True)
 
 
@@ -111,7 +126,8 @@ def application_update(args: Namespace) -> dict:
                'provision_type', 'inference_model', 'data') if getattr(args, key) is not None}
     if args.clear_inference_model:
         changes['inference_model'] = None
-    return application_json(application.update_application(application=replace(value, **changes)))
+    return application_json(application.update_application(application=replace(value, **changes),
+                                                           chunk_size=args.chunk_size, stride=args.stride))
 
 
 HANDLERS = {
@@ -123,11 +139,12 @@ HANDLERS = {
     'applications:list': application_list,
     'applications:show': application_show,
     'process': process,
-    'embed': embed,
+    'embeddings:create': embeddings_create,
+    'embeddings:show': embeddings_show,
+    'embeddings:delete': embeddings_delete,
     'storage:save': storage_save,
     'storage:list': storage_list,
     'search': search,
-    'ingest': ingest,
     **{name: database for name in
        ('db:create', 'db:migrate', 'db:drop', 'db:reset')},
 }

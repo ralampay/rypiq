@@ -56,10 +56,10 @@ def test_real_model_cli_ingestion_search_and_reset(backend, tmp_path):
         assert result.returncode == 0, result.stderr
         return json.loads(result.stdout)
     invoke('db:create')
-    application = invoke('applications:create', '--name', 'test', '--embedding-model', str(model))
+    application = invoke('applications:create', '--name', 'test', '--embedding-model', str(model), '--chunk-size', '200', '--stride', '200')
     source = tmp_path / 'notes.txt'
     source.write_text('PostgreSQL stores structured data. Vector search retrieves related documents.')
-    ingested = invoke('ingest', str(source), '--application-id', application['id'], '--chunk_size', '200', '--stride', '200', '--model', str(model))
+    ingested = invoke('embeddings:create', str(source), '--application-id', application['id'])
     assert ingested['indexed_chunks'] == 1
     results = invoke('search', 'Which database stores structured data?', '--application-id', application['id'], '--model', str(model))
     assert results[0]['content'] == source.read_text()

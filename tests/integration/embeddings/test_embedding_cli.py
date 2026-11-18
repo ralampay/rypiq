@@ -1,110 +1,39 @@
 import json
-import sys
+from uuid import UUID
 
 import pytest
 
 from app import cli, application
+from app.models.document import Document
 
 
 @pytest.mark.integration
-def test_embed_cli_dispatch(
-    monkeypatch, capsys, sample_text_file
-):
+def test_embeddings_cli_dispatch(monkeypatch, capsys, sample_text_file):
     seen = {}
 
-    def fake_embed(**kwargs):
+    def fake_create(**kwargs):
         seen.update(kwargs)
+        return [Document(content='text', embedding=[1., 0.])]
 
-        return {
-            "model": "fake.gguf",
-            "chunks": [],
-            "dimensions": 2,
-        }
-
-    monkeypatch.setattr(
-        application, "embed_file", fake_embed
-    )
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "rypiq",
-            "embed",
-            "text-file",
-            str(sample_text_file),
-            "--chunk_size=4",
-            "--stride=3",
-            "--model=fake.gguf",
-        ],
-    )
-
-    cli.main()
-
-    assert seen["path"] == str(sample_text_file)
-    assert seen["chunk_size"] == 4
-    assert seen["stride"] == 3
-    assert seen["model_path"] == "fake.gguf"
-
+    monkeypatch.setattr(application, 'create_embeddings', fake_create)
+    cli.main(['embeddings:create', str(sample_text_file), '--application-id', str(UUID(int=1))])
+    assert seen == {'path': str(sample_text_file), 'application_id': UUID(int=1), 'batch_size': 1}
     output = json.loads(capsys.readouterr().out)
-    assert output["model"] == "fake.gguf"
+    assert output['chunks'][0]['embedding'] == [1., 0.]
 
 
 @pytest.mark.integration
-def test_embed_cli_output(
-    monkeypatch, capsys, sample_text_file, tmp_path
-):
-    monkeypatch.setattr(
-        application,
-        "embed_file",
-        lambda **kwargs: {
-            "model": "fake.gguf",
-            "chunks": [],
-        },
-    )
-
-    output = tmp_path / "vectors.json"
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "rypiq",
-            "embed",
-            "text-file",
-            str(sample_text_file),
-            "--chunk_size=4",
-            "--stride=3",
-            f"--output={output}",
-        ],
-    )
-
-    cli.main()
-
-    assert json.loads(
-        output.read_text(encoding="utf-8")
-    )["model"] == "fake.gguf"
-
-    assert capsys.readouterr().out == ""
+def test_embeddings_cli_output(monkeypatch, capsys, sample_text_file, tmp_path):
+    monkeypatch.setattr(application, 'create_embeddings',
+                        lambda **kwargs: [Document(content='text', embedding=[1., 0.])])
+    output = tmp_path / 'vectors.json'
+    cli.main(['embeddings:create', str(sample_text_file), '--application-id', str(UUID(int=1)),
+              '--output', str(output)])
+    assert json.loads(output.read_text()) == json.loads(capsys.readouterr().out)
 
 
 @pytest.mark.integration
-def test_embed_cli_missing_stride(
-    monkeypatch, sample_text_file
-):
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "rypiq",
-            "embed",
-            "text-file",
-            str(sample_text_file),
-            "--chunk_size=4",
-        ],
-    )
-
+def test_embeddings_cli_requires_application(sample_text_file):
     with pytest.raises(SystemExit) as exc:
-        cli.main()
-
+        cli.main(['embeddings:create', str(sample_text_file)])
     assert exc.value.code == 2

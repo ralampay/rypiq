@@ -27,7 +27,7 @@ def test_process_text_rejects_chunk_options(capsys):
     assert 'chunking options require text-file' in capsys.readouterr().err
 
 
-def test_ingest_empty_result_keeps_cli_contract(monkeypatch, capsys):
-    monkeypatch.setattr(cli_handlers.application, 'ingest_file', lambda **kwargs: [])
-    cli.main(['ingest', 'unused.txt', '--application-id', '00000000-0000-0000-0000-000000000001', '--chunk_size', '2', '--stride', '2'])
-    assert json.loads(capsys.readouterr().out) == {'indexed_chunks': 0, 'storage_key': None}
+def test_embeddings_create_empty_result_has_empty_chunks(monkeypatch, capsys):
+    monkeypatch.setattr(cli_handlers.application, 'create_embeddings', lambda **kwargs: [])
+    cli.main(['embeddings:create', 'unused.txt', '--application-id', '00000000-0000-0000-0000-000000000001'])
+    assert json.loads(capsys.readouterr().out) == {'indexed_chunks': 0, 'storage_key': None, 'chunks': []}

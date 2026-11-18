@@ -15,7 +15,10 @@ def invoke(backend, tmp_path):
     config = tmp_path / 'config/database.yml'
     config.parent.mkdir()
     config.write_text(yaml.safe_dump({'test': backend.settings}))
-    environment = dict(os.environ, RYPIQ_DATABASE_CONFIG=str(config), DATABASE_ENV='test')
+    storage_config = tmp_path / 'config/storage.yml'
+    storage_config.write_text(yaml.safe_dump({'test': {'adapter': 'local', 'root': str(tmp_path / 'objects')}}))
+    environment = dict(os.environ, RYPIQ_DATABASE_CONFIG=str(config), DATABASE_ENV='test',
+                       STORAGE_ENV='test', RYPIQ_STORAGE_CONFIG=str(storage_config))
     executable = Path(sys.executable).parent / 'rypiq'
     def run(command, *arguments):
         return subprocess.run([str(executable), command, *arguments], cwd=tmp_path, env=environment,
@@ -137,3 +140,44 @@ def test_application_rename_and_delete_preserve_related_data(invoke, backend):
         assert deleted.returncode == 0, deleted.stderr
         assert json.loads(deleted.stdout) == {'deleted': expected}
         assert repository.get(empty.id) is None
+
+
+def test_embedding_cli_lifecycle_with_remote_provider(invoke, backend, server, tmp_path):
+    from uuid import UUID
+
+    backend.create_database()
+    value = backend.applications().create(Application(
+        name='remote', embedding_model='remote-model', provision_type='llama-server', embedding_size=2,
+        data={'chunking': {'chunk_size': 5, 'stride': 5},
+              'provider_config': {'embedding': {'base_url': server['url'] + '/v1'}}}))
+    source = tmp_path / 'source.txt'
+    source.write_text('abcdefghij')
+    output = tmp_path / 'created.json'
+    created = invoke('embeddings:create', str(source), '--application-id', str(value.id), '--output', str(output))
+    assert created.returncode == 0, created.stderr
+    result = json.loads(created.stdout)
+    assert result == json.loads(output.read_text())
+    assert result['indexed_chunks'] == 2
+    first, second = result['chunks']
+    assert first['embedding'] == [1., 0.]
+    assert backend.documents().get(UUID(first['id'])).content == 'abcde'
+    assert backend.documents().get(UUID(second['id'])).content == 'fghij'
+    stored = tmp_path / 'objects' / result['storage_key']
+    assert stored.read_text() == source.read_text()
+
+    # Changing future chunking must not alter already-persisted chunks.
+    updated = invoke('applications:update', str(value.id), '--chunk-size', '10', '--stride', '10')
+    assert updated.returncode == 0, updated.stderr
+    single = tmp_path / 'shown.json'
+    shown = invoke('embeddings:show', '--id', first['id'], '--output', str(single))
+    assert shown.returncode == 0, shown.stderr
+    assert json.loads(shown.stdout) == json.loads(single.read_text()) == first
+    requests_before = len(server['requests'])
+    for expected in (True, False):
+        deleted = invoke('embeddings:delete', '--id', first['id'])
+        assert deleted.returncode == 0, deleted.stderr
+        assert json.loads(deleted.stdout) == {'deleted': expected}
+    assert invoke('embeddings:show', '--id', first['id']).returncode != 0
+    assert backend.documents().get(UUID(second['id'])) is not None
+    assert stored.read_text() == source.read_text()
+    assert len(server['requests']) == requests_before

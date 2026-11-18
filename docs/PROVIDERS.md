@@ -84,11 +84,13 @@ Reference an alias with `@`, for example `--embedding-model @embedding`. Unprefi
 
 Configured application creation/update resolves aliases immediately and persists the resolved model and catalog defaults. Later catalog edits do not alter saved applications. Lower-level CRUD services accept already resolved dataclasses; callers using them directly should resolve aliases explicitly with `resolve_application(application, load_catalog())` at their composition boundary.
 
-Configuration precedence is: explicit allowed CLI override, saved application options, catalog defaults copied when saving, then provider defaults. Standalone `embed` and `chat` resolve catalog aliases on each call. Ad-hoc paths remain supported. New applications created through the CLI or configured Python entrypoint store direct local model paths as absolute paths resolved from the creation directory (including `~` and symlinks). Existing application records and direct CRUD service inputs retain their stored paths; use absolute paths when updating models. Local model identity uses the resolved filename, including for symlink overrides.
+Configuration precedence is: explicit allowed CLI override, saved application options, catalog defaults copied when saving, then provider defaults. The standalone Python `embed_file()` API and `chat` CLI resolve catalog aliases on each call. Ad-hoc paths remain supported. New applications created through the CLI or configured Python entrypoint store direct local model paths as absolute paths resolved from the creation directory (including `~` and symlinks). Existing application records and direct CRUD service inputs retain their stored paths; use absolute paths when updating models. Local model identity uses the resolved filename, including for symlink overrides.
 
 ## Application provider configuration
 
 Store options under `Application.data.provider_config`, with `embedding` and `inference` sections. `applications:create --data` and `applications:update --data` accept the entire JSON data object; updates replace that object rather than patching nested keys. Keep unrelated metadata when replacing it.
+
+Application chunking is stored separately under `data.chunking` (`chunk_size` and `stride`), defaulting to 500 and 400. Use `applications:create` or `applications:update` with `--chunk-size` and `--stride` to set these values; explicit flags override corresponding values in `--data`. Chunking changes are allowed while documents exist and only affect future uploads.
 
 Common options are `base_url`, `api_key_env`, and `timeout`. Local runtime options are `context_size` (default 2048) and `gpu_layers` (default 0; -1 is accepted for all layers). Local inference also accepts `chat_format`; omit it to use llama-cpp-python's model template selection. Local runtime options have no effect on remote server execution; configure those servers separately.
 
@@ -106,7 +108,7 @@ rypiq applications:create --name 'Local example' \
   --inference-model @local-chat
 ```
 
-Local models must be existing GGUF files. `--model` on application-scoped ingestion/search overrides the path only when its filename matches the selected local model; it cannot switch the application's embedding model. `--context_size` and `--gpu_layers` override local embedding runtime settings only when explicitly supplied.
+Local models must be existing GGUF files. `--model` on application-scoped search overrides the path only when its filename matches the selected local model; it cannot switch the application's embedding model. `--context_size` and `--gpu_layers` override local search runtime settings only when explicitly supplied. `embeddings:create` uses saved application settings and accepts none of these overrides.
 
 ### Existing llama.cpp server
 
@@ -146,7 +148,7 @@ rypiq applications:update APPLICATION_UUID --inference-model @local-chat
 rypiq applications:update APPLICATION_UUID --clear-inference-model
 ```
 
-Chat requires exactly one application ID or standalone local model. `--max-tokens` defaults to 512. A missing application inference model fails before constructing a provider. Outputs are JSON; list/show/update output continues to omit the application's API key.
+Chat requires exactly one application ID or standalone local model. `--max-tokens` defaults to 512. A missing application inference model fails before constructing a provider. Chat, model discovery, and application show/update return JSON. `applications:list` defaults to text; use `--output json` for JSON. Application list/show/update output omits the application's API key.
 
 Without `--discover`, model listing is catalog-only and performs no remote calls. An application ID filters the catalog by provider. Discovery requires an application ID and queries each distinct configured remote endpoint/credential pair once; a separate inference endpoint can be listed before choosing its inference model. Local discovery only checks catalog file availability and does not load weights or scan directories.
 

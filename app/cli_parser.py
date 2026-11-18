@@ -37,12 +37,17 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument('content', help='Content to process')
     add_chunk_options(process, required=False)
 
-    embed = commands.add_parser('embed', help='Generate embeddings from a file')
-    embed.add_argument('medium', choices=['text-file'])
-    embed.add_argument('content', help='Path to a .txt, .pdf, .docx, .xlsx, .xls, .xlsm, or .pptx file')
-    add_chunk_options(embed, required=True)
-    add_model_options(embed, batching=True)
-    embed.add_argument('--output', help='Write full JSON to this path')
+    embedding_create = commands.add_parser('embeddings:create', help='Store a file and persist its chunk embeddings')
+    embedding_create.add_argument('path', help='Path to a supported document')
+    embedding_create.add_argument('--application-id', type=UUID, required=True)
+    embedding_create.add_argument('--batch_size', type=int, default=1)
+    embedding_show = commands.add_parser('embeddings:show', help='Show one saved chunk embedding')
+    embedding_show.add_argument('--id', type=UUID, required=True)
+    embedding_delete = commands.add_parser('embeddings:delete', help='Delete one chunk; preserve stored files')
+    embedding_delete.add_argument('--id', type=UUID, required=True)
+    for command in (embedding_create, embedding_show):
+        command.add_argument('--output', help='Also export complete JSON to this file')
+        command.add_argument('--embeddings-full', action='store_true', help='Display every vector value on stdout')
 
     save = commands.add_parser('storage:save', help='Save a file to object storage')
     save.add_argument('path', help='Local path of the file to save')
@@ -55,13 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument('--limit', type=int, default=5)
     add_model_options(search, batching=False)
 
-    ingest = commands.add_parser('ingest', help='Store, embed and index a supported document')
-    ingest.add_argument('path')
-    add_chunk_options(ingest, required=True)
-    add_model_options(ingest, batching=True)
-    for command in (ingest, search):
-        command.add_argument('--application-id', type=UUID, required=True)
-        command.set_defaults(model=None, context_size=None, gpu_layers=None)
+    search.add_argument('--application-id', type=UUID, required=True)
+    search.set_defaults(model=None, context_size=None, gpu_layers=None)
     create = commands.add_parser('applications:create', help='Create an application')
     create.add_argument('--name', required=True)
     create.add_argument('--embedding-model', required=True)
@@ -97,4 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     inference.add_argument('--inference-model')
     inference.add_argument('--clear-inference-model', action='store_true')
     update.add_argument('--data', type=json.loads, help='Replace the complete application data JSON object')
+    for command in (create, update):
+        command.add_argument('--chunk-size', type=int, help='Saved chunk size (default: 500)')
+        command.add_argument('--stride', type=int, help='Saved chunk stride (default: 400)')
     return parser

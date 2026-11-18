@@ -33,7 +33,7 @@ Commands return JSON. Failures return a nonzero exit code with a concise error. 
 
 ## Fixed schema and embeddings
 
-The explicit schema in [app/database/schema.py](../app/database/schema.py) declares `public.applications` and `public.documents`. Applications have a UUID, name, generated unique API key, embedding model, provision type (`local`, `openai`, `llama-server`), embedding size, optional inference model, JSONB `data`, and timestamps. API keys appear only in application creation output; list/show omit them. Keys are stored as supplied credentials, but authentication is not implemented.
+The explicit schema in [app/database/schema.py](../app/database/schema.py) declares `public.applications` and `public.documents`. Applications have a UUID, name, generated unique API key, embedding model, provision type (`local`, `openai`, `llama-server`), embedding size, optional inference model, JSONB `data`, and timestamps. API keys appear only in application creation output; list/show/update omit them. Keys are stored as supplied credentials, but authentication is not implemented.
 
 Every persisted document belongs to an application and copies its `embedding_model`, `embedding_size`, and `provision_type`. Existing `model_name` remains the provider-reported identifier. Ownership and embedding snapshots cannot change through document updates. Applications cannot be deleted while documents reference them; application updates are available through `applications:update`; deletion is available through `applications:delete APPLICATION_UUID`.
 
@@ -53,10 +53,62 @@ Create an application before ingesting documents, then use its UUID with ingesti
 rypiq applications:create --name 'My application' \
   --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768
 rypiq applications:list
+rypiq applications:list --output json
 rypiq applications:show APPLICATION_UUID
+rypiq applications:update APPLICATION_UUID --name 'Renamed application'
 ```
 
 `applications:show APPLICATION_UUID` returns application settings without its API key. Creation also accepts `--provision-type`, `--inference-model`, and `--data '{"purpose":"example"}'`. Embedding and inference execution support all three providers. See [Model providers](PROVIDERS.md) for endpoints, credentials, model aliases, and chat commands.
+
+`applications:list` returns every application's ID and name in UUID order. It
+prints an `ID` / `NAME` text table by default and accepts only `--output text` or
+`--output json`. Empty results produce headers in text or `[]` in JSON. There are
+no CLI pagination options; Python service and repository listing retain pagination.
+
+`applications:update APPLICATION_UUID --name NAME` overrides the name while
+preserving omitted settings. It also supports the existing embedding, provider,
+inference, and data options; see the [application option reference](../README.md#application-commands).
+Show and update return JSON without the API key.
+
+Delete an application only after its documents have been removed:
+
+```sh
+rypiq applications:delete APPLICATION_UUID
+```
+
+Deletion runs without a confirmation prompt and returns `{"deleted": true}` when
+a record was removed or `{"deleted": false}` if it was already absent. Both exit
+successfully. If documents still reference the application, deletion fails with a
+nonzero exit and preserves the application and documents. Object-storage files
+are never removed by this command.
+
+All application CLI names use the plural `applications:*` domain. The former
+singular names and `ls-applications` are no longer accepted.
+
+## Embedding commands
+
+`embeddings:create PATH --application-id UUID` saves the original file and creates
+one row in `documents` per nonempty chunk. Model/provider settings come from the
+application, as do `data.chunking.chunk_size` and `data.chunking.stride` (defaults
+500 and 400). Configure them using `applications:create` or `applications:update`
+with `--chunk-size` and `--stride`. Values must be positive integers with stride
+no greater than chunk size. No schema migration is required. Updating chunking
+settings leaves existing records and their metadata unchanged.
+
+`embeddings:show --id UUID` reads one chunk; `embeddings:delete --id UUID` deletes
+one chunk. Neither requires an application ID. These use the repository's globally
+unique record IDs, not the shared `source_id`, and do not provide an authentication
+boundary. Deletion never removes stored original files, including after the last
+chunk is deleted. An absent deletion returns `{"deleted": false}` successfully;
+an absent show exits nonzero.
+
+Create and show support `--output PATH` to export full JSON after a successful
+operation, while still printing a console response. Console vectors are shortened
+unless `--embeddings-full` is supplied; exported vectors are always complete.
+Export failure after creation preserves database records and storage files and
+reports the persisted chunk IDs. See the [embedding CLI reference](../README.md#embedding-commands)
+for response fields, options, and retry examples. There is no embedding update CLI.
+The former `embed` and `ingest` commands are replaced by `embeddings:create`.
 
 ## CRUD services
 
@@ -92,7 +144,7 @@ Document creation copies application embedding settings without mutating the inp
 
 Missing reads/updates raise `KeyError`. Deletes return `False` for missing records (including documents outside the service's scope); lists return an empty list when no records match. Invalid inputs raise `ValueError` before writes. Document deletion removes only the database record and preserves object-storage files, which can be shared by multiple chunks.
 
-Application updates preserve API keys and creation timestamps. Embedding model, size, provision type, and preprocessing settings can change only when no documents reference the application. Other settings can be updated while documents exist. Application deletion is restricted until its documents have been removed. These rules execute under transaction locks so document creation cannot race past them. API key rotation and document CRUD CLI commands are outside this interface. `applications:update` also resolves model catalog aliases; see [Model providers](PROVIDERS.md).
+Application updates preserve API keys and creation timestamps. Embedding model, size, provision type, and preprocessing settings can change only when no documents reference the application. Other settings can be updated while documents exist. Application deletion is restricted until its documents have been removed. These rules execute under transaction locks so document creation cannot race past them. API key rotation and document updates remain outside the CLI; `embeddings:show` and `embeddings:delete` access individual chunk records by UUID. `applications:update` also resolves model catalog aliases; see [Model providers](PROVIDERS.md).
 
 ## Database integration tests
 

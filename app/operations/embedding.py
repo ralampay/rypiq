@@ -2,6 +2,11 @@
 import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING
+from uuid import UUID
+
+from app.database.repositories.base import DocumentRepository
+from app.models.document import Document
+from app.services._validation import validate_id
 
 from app.embeddings.base import EmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
@@ -75,3 +80,16 @@ def embed_text_file(path: str, chunk_size: int, stride: int,
                       model_path=model_path, context_size=context_size,
                       gpu_layers=gpu_layers, batch_size=batch_size,
                       provider_factory=provider_factory, document_prefix=document_prefix, model_session=model_session)
+
+
+def get_embedding(*, embedding_id: UUID, repository: DocumentRepository) -> Document:
+    validate_id(embedding_id)
+    document = repository.get(embedding_id)
+    if document is None:
+        raise KeyError(f'Embedding {embedding_id} not found')
+    return document
+
+
+def delete_embedding(*, embedding_id: UUID, repository: DocumentRepository) -> bool:
+    validate_id(embedding_id)
+    return repository.delete(embedding_id)

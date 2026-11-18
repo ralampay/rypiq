@@ -65,7 +65,7 @@ def test_search_cli_uses_provider_and_repository(
 
 
 @pytest.mark.integration
-def test_ingest_cli_uses_existing_operation(
+def test_embeddings_create_cli_dispatch(
     monkeypatch,
     capsys,
 ):
@@ -84,7 +84,7 @@ def test_ingest_cli_uses_existing_operation(
 
     monkeypatch.setattr(
         application,
-        "ingest_file",
+        "create_embeddings",
         fake_ingest,
     )
 
@@ -93,14 +93,10 @@ def test_ingest_cli_uses_existing_operation(
         "argv",
         [
             "rypiq",
-            "ingest",
+            "embeddings:create",
             "samples/sample.txt",
             "--application-id",
             "00000000-0000-0000-0000-000000000001",
-            "--chunk_size",
-            "100",
-            "--stride",
-            "50",
         ],
     )
 
@@ -109,4 +105,5 @@ def test_ingest_cli_uses_existing_operation(
     output = json.loads(capsys.readouterr().out)
 
     assert output["indexed_chunks"] == 1
-    assert received["chunk_size"] == 100
+    assert received["batch_size"] == 1
+    assert received["application_id"] == UUID(int=1)

@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import UUID
 
 from app.database.factory import get_database
-from app.models.application import Application, validate_application
+from app.models.application import Application, validate_application, chunking_settings, with_chunking_options
 from app.services.application import ApplicationService
 from app.providers.catalog import load_catalog, resolve_application, resolve_model, catalog_models
 from app.providers.config import ProviderSettings, settings_for, validate_options, model_identity
@@ -27,7 +27,7 @@ from app.embeddings.factory import get_embedding_provider
 from app.models.document import Document
 from app.models.search import SearchResult
 from app.operations.document import IngestDocument
-from app.operations.embedding import embed_chunks, prepare_text_file
+from app.operations.embedding import embed_chunks, prepare_text_file, get_embedding, delete_embedding as delete_embedding_record
 from app.operations.search import SearchDocuments
 
 
@@ -147,13 +147,41 @@ def ingest_file(*, path: str, chunk_size: int, stride: int, application_id: UUID
                                   repository=database.documents()).execute()
 
 
+def create_embeddings(*, path: str, application_id: UUID, batch_size: int = 1) -> list[Document]:
+    from app.storage.factory import get_storage
+
+    with get_database() as database:
+        application = get_application(application_id=application_id, repository=database.applications())
+        settings = _application_settings(application, 'embedding')
+        chunk_size, stride = chunking_settings(application.data)
+        if type(batch_size) is not int or batch_size < 1:
+            raise ValueError('batch_size must be a positive integer')
+        with _open_configured_provider(settings, None, embedding_factory=get_embedding_provider) as provider:
+            return IngestDocument(path=path, chunk_size=chunk_size, stride=stride,
+                                  batch_size=batch_size, embedding_provider=provider,
+                                  application=application, storage=get_storage(),
+                                  repository=database.documents()).execute()
+
+
+def show_embedding(*, embedding_id: UUID) -> Document:
+    with get_database() as database:
+        return get_embedding(embedding_id=embedding_id, repository=database.documents())
+
+
+def delete_embedding(*, embedding_id: UUID) -> bool:
+    with get_database() as database:
+        return delete_embedding_record(embedding_id=embedding_id, repository=database.documents())
+
+
 def create_application(*, name: str, embedding_model: str, provision_type: str = 'local',
                        embedding_size: int | None = None, inference_model: str | None = None,
-                       data: dict | None = None) -> Application:
+                       data: dict | None = None, chunk_size: int | None = None,
+                       stride: int | None = None) -> Application:
     with get_database() as database:
         value = Application(name=name, embedding_model=embedding_model, provision_type=provision_type,
                             embedding_size=database.settings['dimensions'] if embedding_size is None else embedding_size,
-                            inference_model=inference_model, data={} if data is None else data)
+                            inference_model=inference_model, data=with_chunking_options(
+                                {} if data is None else data, chunk_size=chunk_size, stride=stride))
         value = resolve_application(value, _catalog_for(value.embedding_model, value.inference_model))
         if value.provision_type == 'local':
             value = replace(value, embedding_model=str(Path(value.embedding_model).expanduser().resolve()),
@@ -182,7 +210,10 @@ def delete_application(*, application_id: UUID) -> bool:
         return delete_application_record(application_id=application_id, repository=database.applications())
 
 
-def update_application(*, application: Application) -> Application:
+def update_application(*, application: Application, chunk_size: int | None = None,
+                       stride: int | None = None) -> Application:
+    application = replace(application, data=with_chunking_options(
+        application.data, chunk_size=chunk_size, stride=stride))
     resolved = resolve_application(application, _catalog_for(application.embedding_model, application.inference_model))
     with get_database() as database:
         return ApplicationService(repository=database.applications()).update(resolved)
