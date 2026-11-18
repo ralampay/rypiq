@@ -5,7 +5,8 @@ import pytest
 from app.models.application import Application
 from app.providers.config import settings_for
 from app.providers.contracts import ChatMessage, ProviderError
-from app.providers.factory import open_provider
+from app.providers.factory import open_capability_provider as open_provider, open_discovery_provider
+from app.providers.resolution import discovery_settings_for
 
 
 @pytest.mark.parametrize('provision_type', ['openai', 'llama-server'])
@@ -18,7 +19,8 @@ def test_real_sdk_embeddings_chat_discovery_and_separate_endpoints(server, monke
                       }})
     with open_provider(settings_for(app, 'embedding')) as provider:
         assert provider.embed(['first', 'second']) == [[1., 0.], [1., 0.]]
-        assert provider.list_models()[0].id == 'remote-model'
+    with open_discovery_provider(discovery_settings_for(app, 'embedding')) as discovery:
+        assert discovery.list_models()[0].id == 'remote-model'
     with open_provider(settings_for(app, 'inference')) as provider:
         result = provider.chat([ChatMessage('system', 'be brief'), ChatMessage('user', 'hello')], max_tokens=12)
         assert result.text == 'answer'

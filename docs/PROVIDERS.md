@@ -4,7 +4,7 @@ RyPiq selects embedding and inference adapters from an application's `provision_
 
 ## Common contracts and resource ownership
 
-[Provider contracts](../app/providers/contracts.py) expose:
+[Provider contracts](../app/providers/contracts/__init__.py) expose:
 
 - `EmbeddingProvider.embed(texts) -> list[list[float]]`, `model_name`, and `close()`.
 - `InferenceProvider.chat(messages, max_tokens=512, temperature=None) -> ChatResult` and `close()`.
@@ -16,6 +16,58 @@ Operations borrow providers and never close them. Configured entrypoints own and
 
 Remote adapters use the OpenAI Python SDK with automatic retries disabled and a default 60-second request timeout. Their exceptions omit raw server diagnostics, credentials, and prompts. The llama-server adapter uses the server's OpenAI-compatible endpoints; it neither launches a server nor uses a local model instance for HTTP calls. See the [llama-cpp-python HTTP client example](https://llama-cpp-python.readthedocs.io/en/latest/server/).
 
+## Code organization and imports
+
+Model infrastructure lives under `app.providers`. Capability contracts describe what
+operations can call; concrete adapters handle local runtimes or remote protocols.
+
+| Namespace | Responsibility |
+| --- | --- |
+| `contracts.embedding`, `contracts.inference`, `contracts.discovery` | `EmbeddingProvider`, `InferenceProvider`, and `ModelDiscovery` interfaces |
+| `types.chat`, `types.model` | Frozen `ChatMessage`, `ChatResult`, and `ModelInfo` values |
+| `local.embedding`, `local.inference` | Separate local embedding and inference adapters |
+| `openai`, `llama_server` | Backend-specific embedding, inference, and discovery classes |
+| `openai_compatible` | Shared HTTP request/response implementations |
+| `config` | `ProviderSettings`, endpoint-only `DiscoverySettings`, and pure validation |
+| `resolution` | Application settings and catalog-default resolution |
+| `factory`, `lifecycle`, `session` | Construction, owned cleanup scopes, and reusable local models |
+| `catalog`, `discovery`, `validation`, `normalization` | Catalog I/O, list merging, request validation, and response decoding |
+
+Import interfaces and values from their owning modules:
+
+```python
+from app.providers.contracts.embedding import EmbeddingProvider
+from app.providers.contracts.inference import InferenceProvider
+from app.providers.contracts.discovery import ModelDiscovery
+from app.providers.types.chat import ChatMessage, ChatResult
+from app.providers.types.model import ModelInfo
+```
+
+Contracts do not import SDKs, configuration, application models, or concrete adapters.
+The embedding interface remains an ABC; inference and discovery remain protocols.
+There is no universal provider base class. Database and storage contracts remain in
+their own subsystems.
+
+New composition code uses `create_embedding_provider()`, `create_inference_provider()`,
+or `create_discovery_provider()` from `app.providers.factory`. These return only the
+requested capability. Use `open_capability_provider(settings)` for an owned embedding
+or inference scope and `open_discovery_provider(settings)` for an owned discovery
+scope. Operations borrow providers and do not close them.
+
+Discovery settings contain only provider, base URL, credential environment-variable
+name, and timeout. `discovery_settings_for(application, capability)` resolves these
+without selecting or inventing an inference model. Application listing still queries
+each endpoint/credential pair once and keeps catalog-only listing offline.
+
+Compatibility imports remain supported: `app.providers.contracts` exports the same
+interfaces and values, `app.embeddings.base` and `app.embeddings.local` alias the
+canonical classes, and `app.providers.local` exports `LocalInferenceProvider`.
+The old `config.settings_for()` and `catalog.resolve_application()` functions forward
+to `resolution`. The original `remote.OpenAIProvider` and `remote.LlamaServerProvider`
+classes remain combined delegating facades. `create_provider()` and `open_provider()`
+retain those combined remote adapters, including `list_models()`, for existing callers.
+Their factory dependency hooks and ownership behavior are unchanged.
+
 ## Reusing local models
 
 Use `LocalModelSession` to share loaded models across Python operations. Loading is lazy: creating a session loads nothing, and embedding alone does not load inference. Optional `warmup()` accepts resolved `ProviderSettings` for whichever capabilities you want ready before requests.
@@ -24,8 +76,8 @@ Use `LocalModelSession` to share loaded models across Python operations. Loading
 from uuid import UUID
 
 from app.application import show_application, ingest_file, search_documents, chat
-from app.providers.config import settings_for
-from app.providers.contracts import ChatMessage
+from app.providers.resolution import settings_for
+from app.providers.types.chat import ChatMessage
 from app.providers.session import LocalModelSession
 
 application_id = UUID('00000000-0000-0000-0000-000000000001')  # Replace with your local application ID.
@@ -161,7 +213,7 @@ Results are deterministic and deduplicated by provider and resolved model. They 
 ```python
 from uuid import UUID
 from app.application import chat, list_models
-from app.providers.contracts import ChatMessage
+from app.providers.types.chat import ChatMessage
 
 result = chat(
     application_id=UUID('00000000-0000-0000-0000-000000000001'),

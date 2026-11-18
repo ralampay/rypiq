@@ -1,8 +1,8 @@
 """Factory for constructing embedding providers."""
 
 from app.exceptions import ProviderConfigurationError
-from app.embeddings.base import EmbeddingProvider
-from app.embeddings.local import LocalEmbeddingProvider
+from app.providers.contracts.embedding import EmbeddingProvider
+from app.providers.local.embedding import LocalEmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
 
 

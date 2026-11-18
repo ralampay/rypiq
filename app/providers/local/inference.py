@@ -9,8 +9,9 @@ from app.exceptions import (
     ProviderRequestError,
 )
 from app.providers.config import ProviderSettings
-from app.providers.contracts import ChatMessage, ChatResult
-from app.providers.normalization import chat_response, validate_chat
+from app.providers.types.chat import ChatMessage, ChatResult
+from app.providers.validation import validate_chat
+from app.providers.normalization import chat_response
 
 
 class LocalInferenceProvider:

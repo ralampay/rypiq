@@ -1,15 +1,20 @@
 """Explicit repository catalog. Alias references use @name; direct models remain valid."""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.application import Application
+
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import os
 from pathlib import Path
 
 import yaml
 
 from app.exceptions import ModelCatalogError
-from app.models.application import Application, validate_application
-from app.providers.config import CAPABILITIES, PROVIDERS, validate_options, validate_provider_config
-from app.providers.contracts import ModelInfo
+from app.providers.config import CAPABILITIES, PROVIDERS, validate_options
+from app.providers.types.model import ModelInfo
 
 DEFAULT_CATALOG = Path(__file__).resolve().parents[2] / 'config/models.yml'
 
@@ -63,22 +68,9 @@ def resolve_model(model: str, provider: str, capability: str,
 
 
 def resolve_application(application: Application, catalog: dict[str, CatalogEntry]) -> Application:
-    validate_application(application)
-    data = deepcopy(application.data)
-    validate_provider_config(data, application.embedding_size)
-    models = {}
-    for capability in CAPABILITIES:
-        model = getattr(application, capability + '_model')
-        if model is None:
-            continue
-        resolved, defaults = resolve_model(model, application.provision_type, capability, catalog)
-        models[capability + '_model'] = resolved
-        if defaults:
-            section = data.setdefault('provider_config', {}).setdefault(capability, {})
-            data['provider_config'][capability] = {**defaults, **section}
-    result = replace(application, data=data, **models)
-    validate_provider_config(result.data, result.embedding_size)
-    return result
+    """Compatibility entrypoint for application catalog resolution."""
+    from app.providers.resolution import resolve_application as resolve
+    return resolve(application, catalog)
 
 
 def catalog_models(catalog: dict[str, CatalogEntry]) -> list[ModelInfo]:

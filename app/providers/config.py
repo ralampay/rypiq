@@ -1,11 +1,16 @@
 """Pure provider settings; environment and filesystem access stay in factories."""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.application import Application
+
 from dataclasses import dataclass
 import math
 import re
 from urllib.parse import urlsplit
 
 from app.exceptions import ProviderConfigurationError
-from app.models.application import Application
 
 
 PROVIDERS = ('local', 'openai', 'llama-server')
@@ -76,24 +81,9 @@ class ProviderSettings:
 
 
 def settings_for(application: Application, capability: str) -> ProviderSettings:
-    if capability not in CAPABILITIES or application.provision_type not in PROVIDERS:
-        raise ProviderConfigurationError('Unsupported provider capability')
-    model = getattr(application, capability + '_model')
-    if not isinstance(model, str) or not model.strip():
-        raise ProviderConfigurationError('Application has no configured model for this capability')
-    validate_provider_config(application.data, application.embedding_size)
-    options = dict(application.data.get('provider_config', {}).get(capability, {}))
-    provider = application.provision_type
-    if provider == 'local' and capability == 'embedding':
-        options.setdefault('document_prefix', 'title: none | text: ')
-        options.setdefault('query_prefix', 'task: search result | query: ')
-    if provider == 'openai':
-        options.setdefault('base_url', 'https://api.openai.com/v1')
-        options.setdefault('api_key_env', 'OPENAI_API_KEY')
-    if provider == 'llama-server' and 'base_url' not in options:
-        raise ProviderConfigurationError('llama-server requires a base URL for the requested capability')
-    return ProviderSettings(provider=provider, capability=capability, model=model,
-                            embedding_size=application.embedding_size, **options)
+    """Compatibility entrypoint for application settings resolution."""
+    from app.providers.resolution import settings_for as resolve
+    return resolve(application, capability)
 
 
 def embedding_preprocessing(data: dict, provider: str, size: int) -> tuple[str, str, int | None]:
@@ -107,3 +97,12 @@ def embedding_preprocessing(data: dict, provider: str, size: int) -> tuple[str, 
 def model_identity(model: str, provider: str) -> str:
     from pathlib import Path
     return Path(model).expanduser().resolve().name if provider == 'local' else model
+
+
+@dataclass(frozen=True)
+class DiscoverySettings:
+    """Endpoint configuration independent of any selected model."""
+    provider: str
+    base_url: str | None = None
+    api_key_env: str | None = None
+    timeout: float = 60

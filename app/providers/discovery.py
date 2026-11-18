@@ -1,7 +1,7 @@
 """Deterministic model listing without guessing remote capabilities."""
 from dataclasses import replace
 
-from app.providers.contracts import ModelInfo
+from app.providers.types.model import ModelInfo
 
 
 def merge_models(configured: list[ModelInfo], discovered: list[ModelInfo]) -> list[ModelInfo]:

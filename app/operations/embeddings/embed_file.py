@@ -2,7 +2,7 @@
 import math
 
 from app.exceptions import EmptyDocumentError, ProviderResponseError, ValidationError
-from app.embeddings.base import EmbeddingProvider
+from app.providers.contracts.embedding import EmbeddingProvider
 from app.operations.processing.file import process_text_file
 
 DEFAULT_PREFIX = 'title: none | text: '

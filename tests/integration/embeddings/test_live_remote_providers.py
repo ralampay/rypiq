@@ -8,7 +8,8 @@ import pytest
 from app.models.application import Application
 from app.providers.config import settings_for
 from app.providers.contracts import ChatMessage
-from app.providers.factory import open_provider
+from app.providers.factory import open_capability_provider as open_provider, open_discovery_provider
+from app.providers.resolution import discovery_settings_for
 
 
 @pytest.mark.parametrize('provider,variable', [
@@ -23,7 +24,8 @@ def test_live_remote_embedding_inference_and_discovery(provider, variable):
     with open_provider(settings_for(application, 'embedding')) as embedding:
         vectors = embedding.embed(['Hello world'])
         assert len(vectors) == 1 and len(vectors[0]) == application.embedding_size
-        assert isinstance(embedding.list_models(), list)
+    with open_discovery_provider(discovery_settings_for(application, 'embedding')) as discovery:
+        assert isinstance(discovery.list_models(), list)
     with open_provider(settings_for(application, 'inference')) as inference:
         result = inference.chat([ChatMessage('user', 'Say hello.')], max_tokens=32)
         assert isinstance(result.text, str)

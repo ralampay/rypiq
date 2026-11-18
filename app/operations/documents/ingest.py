@@ -4,7 +4,7 @@ from app.providers.config import embedding_preprocessing, model_identity
 from app.database.repositories.document import DocumentRepository
 from app.storage.base import ObjectStorage
 from app.models.document import DocumentDetails
-from app.embeddings.base import EmbeddingProvider
+from app.providers.contracts.embedding import EmbeddingProvider
 from app.operations.embeddings.embed_file import EmbedTextFile
 from app.operations.documents.persist import persist_document
 from app.operations.documents.name import prepare_document_name

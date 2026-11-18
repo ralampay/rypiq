@@ -2,7 +2,7 @@
 from argparse import Namespace
 from dataclasses import asdict, replace
 from app.exceptions import ValidationError
-from app.providers.contracts import ChatMessage
+from app.providers.types.chat import ChatMessage
 
 from app import application
 from app.models.document import DocumentDetails

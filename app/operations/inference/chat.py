@@ -1,6 +1,7 @@
 """Text-only inference using borrowed provider resources."""
-from app.providers.contracts import ChatMessage, ChatResult, InferenceProvider
-from app.providers.normalization import validate_chat
+from app.providers.types.chat import ChatMessage, ChatResult
+from app.providers.contracts.inference import InferenceProvider
+from app.providers.validation import validate_chat
 
 
 class Chat:

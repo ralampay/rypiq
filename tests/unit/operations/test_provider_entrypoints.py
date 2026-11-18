@@ -154,7 +154,7 @@ def test_model_listing_modes_and_endpoint_deduplication(monkeypatch, configured_
         model = Mock()
         model.list_models.return_value = [ModelInfo('remote', 'openai', (), 'discovered', 'available', 'remote')]
         yield model
-    monkeypatch.setattr(application, 'open_provider', open_provider)
+    monkeypatch.setattr(application, 'open_discovery_provider', open_provider)
     assert application.list_models(application_id=remote.id, discover=False)
     assert not settings
     application.list_models(application_id=remote.id, discover=True)
@@ -168,6 +168,8 @@ def test_model_listing_modes_and_endpoint_deduplication(monkeypatch, configured_
     remote.data = {'provider_config': {'inference': {'base_url': 'http://localhost:8123/v1'}}}
     application.list_models(application_id=remote.id, discover=True)
     assert len(settings) == 2  # Inference endpoint can be discovered before selecting its model.
+    assert all(not hasattr(value, 'model') for value in settings)
+    assert remote.inference_model is None
 
 
 def test_create_and_update_snapshot_catalog_aliases(tmp_path, monkeypatch, configured_backend):

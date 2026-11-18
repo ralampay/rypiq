@@ -274,3 +274,19 @@ Coverage includes the entire `app` package and subprocesses used by installed-CL
 Unit tests cover command contracts, resource ownership, configuration and safe errors. Integration tests exercise actual PostgreSQL/pgvector, the installed CLI, the available local embedding model, and storage publication/compensation. Historical validation reports do not replace a fresh run after a behavioral change.
 
 The recorded refactor run and remaining coverage gaps are in [refactor validation](REFACTOR_VALIDATION.md).
+
+## Model-provider construction and discovery
+
+Configured operations resolve application/catalog settings through
+`app.providers.resolution`, then borrow a provider from `LocalModelSession` or an
+`open_capability_provider()` scope. The latter dispatches to the embedding or
+inference factory. CLI and operation result contracts are unchanged.
+
+`app.application.list_models()` loads the catalog, optionally reads the application,
+and resolves `DiscoverySettings` for each configured remote capability. It deduplicates
+endpoint/credential pairs, opens each through `open_discovery_provider()`, and merges
+normalized model lists. No inference model is required for endpoint discovery.
+
+The legacy `create_provider()`/`open_provider()` path still returns combined remote
+facades. See [provider namespaces and compatibility](PROVIDERS.md#code-organization-and-imports)
+for canonical contract imports and the migration path.

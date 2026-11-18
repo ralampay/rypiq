@@ -1,82 +1,38 @@
-"""Separate remote adapters sharing the OpenAI-compatible HTTP protocol."""
-from app.exceptions import (
-    ProviderCleanupError,
-    ProviderRequestError,
-    ProviderResponseError,
-    ValidationError,
-)
-from app.providers.config import ProviderSettings
-from app.providers.contracts import ChatMessage, ChatResult, ModelInfo
-from app.providers.normalization import chat_response, embedding_response, validate_chat, validate_texts
+"""Compatibility facades for the original combined remote adapter API."""
+from app.providers.config import ProviderSettings, DiscoverySettings
+from app.providers.types.chat import ChatMessage, ChatResult
+from app.providers.types.model import ModelInfo
+from app.providers.openai_compatible._client import ClientOwner
+from app.providers.openai import OpenAIEmbeddingProvider, OpenAIInferenceProvider, OpenAIModelDiscovery
+from app.providers.llama_server import LlamaServerInferenceProvider
 
 
-class OpenAIProvider:
+class OpenAIProvider(ClientOwner[ProviderSettings]):
     def __init__(self, settings: ProviderSettings, *, client, owns_client: bool = False) -> None:
-        self.settings = settings
-        self.client = client
-        self.owns_client = owns_client
+        super().__init__(settings, client=client, owns_client=owns_client)
 
     @property
     def model_name(self) -> str:
         return self.settings.model
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        validate_texts(texts)
-        if self.settings.capability != 'embedding':
-            raise ValidationError('Provider was not configured for embeddings')
-        if not texts:
-            return []
-        options = {}
-        if self.settings.dimensions is not None:
-            options['dimensions'] = self.settings.dimensions
-        try:
-            response = self.client.embeddings.create(model=self.model_name, input=texts, **options)
-        except Exception:
-            raise ProviderRequestError('Embedding request failed; check provider availability and configuration') from None
-        return embedding_response(response, len(texts), self.settings.embedding_size)
+        return OpenAIEmbeddingProvider(self.settings, client=self.client).embed(texts)
 
     def chat(self, messages: list[ChatMessage], *, max_tokens: int = 512,
              temperature: float | None = None) -> ChatResult:
-        serialized = validate_chat(messages, max_tokens, temperature)
-        if self.settings.capability != 'inference':
-            raise ValidationError('Provider was not configured for inference')
-        options = {'max_completion_tokens': max_tokens}
-        if temperature is not None:
-            options['temperature'] = temperature
-        try:
-            response = self.client.chat.completions.create(model=self.model_name, messages=serialized,
-                                                          **self._chat_options(options))
-        except Exception:
-            raise ProviderRequestError('Chat request failed; check provider availability and configuration') from None
-        return chat_response(response, self.model_name)
+        adapter = OpenAIInferenceProvider(self.settings, client=self.client)
+        adapter._chat_options = self._chat_options
+        return adapter.chat(messages, max_tokens=max_tokens, temperature=temperature)
 
     def _chat_options(self, options: dict) -> dict:
         return options
 
     def list_models(self) -> list[ModelInfo]:
-        try:
-            response = self.client.models.list()
-        except Exception:
-            raise ProviderRequestError('Model discovery failed; check provider availability and configuration') from None
-        try:
-            data = response['data'] if isinstance(response, dict) else [item.model_dump() for item in response]
-            ids = {item['id'] for item in data}
-            if any(not isinstance(model, str) or not model.strip() for model in ids):
-                raise ValueError
-            return [ModelInfo(model, self.settings.provider, (), 'discovered', 'available', model)
-                    for model in sorted(ids)]
-        except (TypeError, ValueError, KeyError, AttributeError):
-            raise ProviderResponseError('Invalid model discovery response from provider') from None
-
-    def close(self) -> None:
-        if self.owns_client:
-            try:
-                self.client.close()
-            except Exception:
-                raise ProviderCleanupError('Provider client cleanup failed') from None
+        settings = DiscoverySettings(self.settings.provider, self.settings.base_url,
+                                     self.settings.api_key_env, self.settings.timeout)
+        return OpenAIModelDiscovery(settings, client=self.client).list_models()
 
 
 class LlamaServerProvider(OpenAIProvider):
-    """llama.cpp uses max_tokens rather than OpenAI's newer token-limit field."""
-    def _chat_options(self, options: dict) -> dict:
-        return {'max_tokens' if key == 'max_completion_tokens' else key: value for key, value in options.items()}
+    """Compatibility facade retaining llama.cpp token-limit mapping."""
+    _chat_options = LlamaServerInferenceProvider._chat_options

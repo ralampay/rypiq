@@ -69,6 +69,8 @@ A command may delegate to an existing function to avoid duplicating behavior. If
 - Import directly from action modules. Package `__init__.py` files do not eagerly re-export operations. Add new actions to their owning domain rather than extending a flat catch-all module.
 - Keep configured Python entrypoints, including `embed_text_file()` and `ingest_document()`, in `app.application`. Operations must not import that composition layer. See [namespace migration](EXECUTION_PATHS.md#operation-namespaces-and-import-migration) for the import map.
 - Infrastructure command facades can stay in their subsystem. The existing `DatabaseCommands` exposes `create()`, `migrate()`, `drop()`, and `reset()` for explicit CLI dispatch. It is not a single-use business command and does not need an `execute()` retrofit.
+- Keep capability contracts in their owning subsystem. Model-provider interfaces live in `app.providers.contracts` by capability; shared normalized values live in `app.providers.types`. Import from the owning modules in new code. Contracts do not depend on provider settings, SDKs, or concrete adapters.
+- Model adapters are grouped by backend and capability. Use typed provider factories for new composition code; retain the legacy combined factories for compatibility. Configuration resolution belongs in `app.providers.resolution`, outside operations and pure validation.
 - Use type annotations for new public interfaces, explicit keyword arguments for dependencies, and existing repository/provider contracts. Follow nearby formatting; avoid unrelated repository-wide formatting changes.
 
 ## Illustrative command and tests

@@ -14,20 +14,23 @@ from app.exceptions import (
 from app.database.factory import get_database
 from app.models.application import Application, validate_application, chunking_settings, with_chunking_options
 from app.services.application import ApplicationService
-from app.providers.catalog import load_catalog, resolve_application, resolve_model, catalog_models
-from app.providers.config import ProviderSettings, settings_for, validate_options, model_identity, embedding_preprocessing
-from app.providers.contracts import ChatMessage, ChatResult, ModelInfo, InferenceProvider
-from app.providers.factory import open_provider
+from app.providers.catalog import load_catalog, resolve_model, catalog_models
+from app.providers.config import ProviderSettings, validate_options, model_identity, embedding_preprocessing
+from app.providers.types.chat import ChatMessage, ChatResult
+from app.providers.types.model import ModelInfo
+from app.providers.contracts.inference import InferenceProvider
+from app.providers.factory import open_capability_provider as open_provider, open_discovery_provider
+from app.providers.resolution import settings_for, resolve_application, discovery_settings_for
 from app.providers.session import LocalModelSession
 from app.providers.discovery import merge_models
 from app.operations.inference.chat import Chat
-from app.providers.normalization import validate_chat
+from app.providers.validation import validate_chat
 from app.operations.applications.create import CreateApplication
 from app.operations.applications.get import get_application
 from app.operations.applications.list import list_applications, list_all_applications
 from app.operations.applications.delete import delete_application as delete_application_record
 
-from app.embeddings.base import EmbeddingProvider
+from app.providers.contracts.embedding import EmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
 from app.embeddings.factory import get_embedding_provider
 from app.models.document import DocumentDetails, DocumentSummary
@@ -292,13 +295,12 @@ def list_models(*, application_id: UUID | None = None, discover: bool = False) -
             if capability == 'inference' and value.inference_model is None:
                 if 'inference' not in value.data.get('provider_config', {}):
                     continue
-                value = replace(value, inference_model='discovery')
-            settings = settings_for(value, capability)
+            settings = discovery_settings_for(value, capability)
             endpoint = (settings.base_url, settings.api_key_env)
             if endpoint in seen:
                 continue
             seen.add(endpoint)
-            with open_provider(settings) as provider:
+            with open_discovery_provider(settings) as provider:
                 discovered.extend(provider.list_models())
     return merge_models(configured, discovered)
 

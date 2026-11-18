@@ -7,7 +7,8 @@ from threading import Condition, get_ident
 
 from app.exceptions import ModelSessionStateError, ProviderCleanupError, ValidationError
 from app.providers.config import ProviderSettings, validate_options
-from app.providers.contracts import EmbeddingProvider, InferenceProvider
+from app.providers.contracts.embedding import EmbeddingProvider
+from app.providers.contracts.inference import InferenceProvider
 from app.providers.factory import create_provider
 
 

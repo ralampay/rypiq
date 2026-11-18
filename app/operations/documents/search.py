@@ -14,7 +14,7 @@ from app.models.application import validate_application
 from app.providers.config import model_identity, embedding_preprocessing
 
 from app.database.repositories.embedding import EmbeddingRepository
-from app.embeddings.base import EmbeddingProvider
+from app.providers.contracts.embedding import EmbeddingProvider
 from app.models.search import SearchResult
 
 
