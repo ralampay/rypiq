@@ -114,7 +114,7 @@ import pytest
 
 
 def test_command_updates_the_loaded_document():
-    document = Document(source="old")
+    document = Document(source="old", name='Example document')
     repository = Mock(spec=DocumentRepository)
     repository.get.return_value = document
     repository.update.return_value = document

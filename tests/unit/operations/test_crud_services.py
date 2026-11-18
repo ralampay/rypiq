@@ -84,7 +84,7 @@ def test_service_pagination_before_io(document_service, limit, offset):
 
 
 def test_document_create_snapshots_application_without_mutating_input(document_service, application):
-    original = Document(filename='file.txt')
+    original = Document(filename='file.txt', name=str(uuid4()))
     document_service.repository.create.side_effect = lambda document: document
     created = document_service.create(original)
     assert created is not original
@@ -99,7 +99,7 @@ def test_document_create_snapshots_application_without_mutating_input(document_s
 
 def test_document_scoped_read_update_delete_and_list(document_service, application):
     document = Document(application_id=application.id,
-                        filename='file.txt')
+                        filename='file.txt', name=str(uuid4()))
     repository = document_service.repository
     repository.get.return_value = document
     repository.list.return_value = [document]
@@ -123,14 +123,14 @@ def test_document_missing_resources(document_service):
         document_service.get(uuid4())
     document_service.applications.get.return_value = None
     with pytest.raises(KeyError):
-        document_service.create(Document())
+        document_service.create(Document(name=str(uuid4())))
     document_service.repository.create.assert_not_called()
 
 
 @pytest.mark.parametrize('method', ['create', 'update'])
 def test_document_cross_application_write_rejected(document_service, method):
     with pytest.raises(ValueError, match='application'):
-        getattr(document_service, method)(Document(application_id=uuid4()))
+        getattr(document_service, method)(Document(application_id=uuid4(), name=str(uuid4())))
     assert not document_service.repository.mock_calls
 
 
@@ -144,7 +144,7 @@ def test_document_invalid_id_rejected(document_service, method):
 @pytest.mark.parametrize('method', ['create', 'update', 'get', 'delete', 'list'])
 def test_document_invalid_scope_rejected(method):
     service = DocumentService(application_id=None, repository=Mock(), applications=Mock())
-    args = [] if method == 'list' else [Document()] if method in ('create', 'update') else [uuid4()]
+    args = [] if method == 'list' else [Document(name=str(uuid4()))] if method in ('create', 'update') else [uuid4()]
     with pytest.raises(ValueError, match='UUID'):
         getattr(service, method)(*args)
     assert not service.repository.mock_calls and not service.applications.mock_calls
@@ -157,7 +157,7 @@ def test_document_invalid_scope_rejected(method):
 @pytest.mark.parametrize('method', ['create', 'update'])
 def test_document_invalid_values_never_write(document_service, application, method, changes):
     document = Document(application_id=application.id,
-                        filename='file.txt')
+                        filename='file.txt', name=str(uuid4()))
     with pytest.raises(ValueError):
         getattr(document_service, method)(replace(document, **changes))
     document_service.repository.create.assert_not_called()
@@ -167,7 +167,7 @@ def test_document_invalid_values_never_write(document_service, application, meth
 @pytest.mark.parametrize('method', ['create', 'get', 'list', 'update', 'delete'])
 def test_document_repository_failure_preserved_and_resources_borrowed(document_service, application, method):
     document = Document(application_id=application.id,
-                        filename='file.txt')
+                        filename='file.txt', name=str(uuid4()))
     failure = RuntimeError('persistence failed')
     getattr(document_service.repository, method).side_effect = failure
     args = [] if method == 'list' else [document] if method in ('create', 'update') else [document.id]

@@ -24,7 +24,10 @@ from app.operations.applications.delete import delete_application as delete_appl
 from app.embeddings.base import EmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
 from app.embeddings.factory import get_embedding_provider
-from app.models.document import DocumentDetails
+from app.models.document import DocumentDetails, DocumentSummary
+from app.models.validation import normalize_document_name
+from app.operations.documents.name import prepare_document_name
+from app.operations.documents.list import list_documents
 from app.models.embedding import Embedding
 from app.operations.documents.get import get_document
 from app.operations.documents.delete import delete_document as delete_document_record
@@ -140,36 +143,46 @@ def search_documents(*, query: str, application_id: UUID, limit: int = 10,
                                    metadata_filters=metadata_filters).execute()
 
 
-def ingest_file(*, path: str, chunk_size: int, stride: int, application_id: UUID,
+def ingest_file(*, name: str, path: str, chunk_size: int, stride: int, application_id: UUID,
                 model_path: str | None = None, context_size: int | None = None,
                 gpu_layers: int | None = None, batch_size: int = 1,
                 model_session: LocalModelSession | None = None) -> DocumentDetails:
     from app.storage.factory import get_storage
 
+    name = normalize_document_name(name)
     with get_database() as database:
         application = get_application(application_id=application_id, repository=database.applications())
+        name = prepare_document_name(name=name, application_id=application.id, repository=database.documents())
         settings = _application_settings(application, 'embedding', model_path, context_size, gpu_layers)
         with _open_configured_provider(settings, model_session, embedding_factory=get_embedding_provider) as provider:
-            return IngestDocument(path=path, chunk_size=chunk_size, stride=stride,
+            return IngestDocument(name=name, path=path, chunk_size=chunk_size, stride=stride,
                                   batch_size=batch_size, embedding_provider=provider,
                                   application=application, storage=get_storage(),
                                   repository=database.documents()).execute()
 
 
-def create_document(*, path: str, application_id: UUID, batch_size: int = 1) -> DocumentDetails:
+def create_document(*, name: str, path: str, application_id: UUID, batch_size: int = 1) -> DocumentDetails:
     from app.storage.factory import get_storage
 
+    name = normalize_document_name(name)
     with get_database() as database:
         application = get_application(application_id=application_id, repository=database.applications())
+        name = prepare_document_name(name=name, application_id=application.id, repository=database.documents())
         settings = _application_settings(application, 'embedding')
         chunk_size, stride = chunking_settings(application.data)
         if type(batch_size) is not int or batch_size < 1:
             raise ValueError('batch_size must be a positive integer')
         with _open_configured_provider(settings, None, embedding_factory=get_embedding_provider) as provider:
-            return IngestDocument(path=path, chunk_size=chunk_size, stride=stride,
+            return IngestDocument(name=name, path=path, chunk_size=chunk_size, stride=stride,
                                   batch_size=batch_size, embedding_provider=provider,
                                   application=application, storage=get_storage(),
                                   repository=database.documents()).execute()
+
+
+def enumerate_documents(*, application_id: UUID) -> list[DocumentSummary]:
+    with get_database() as database:
+        return list_documents(application_id=application_id, repository=database.documents(),
+                              applications=database.applications())
 
 
 def show_document(*, document_id: UUID) -> DocumentDetails:
@@ -297,12 +310,13 @@ def embed_text_file(path: str, chunk_size: int, stride: int,
 
 
 def ingest_document(path: str, storage: ObjectStorage, repository: DocumentRepository,
-                    chunk_size: int, stride: int, *, application: Application,
+                    chunk_size: int, stride: int, *, name: str, application: Application,
                     model_session: 'LocalModelSession | None' = None, **embedding_options) -> DocumentDetails:
     """Compatibility entrypoint: compose embedding, then use the shared persistence operation."""
     validate_application(application)
     if application.provision_type != "local":
         raise ValueError("Use IngestDocument with an injected provider for remote embeddings")
+    name = prepare_document_name(name=name, application_id=application.id, repository=repository)
     settings = settings_for(application, "embedding")
     embedding_options.setdefault("context_size", settings.context_size)
     embedding_options.setdefault("gpu_layers", settings.gpu_layers)
@@ -310,4 +324,4 @@ def ingest_document(path: str, storage: ObjectStorage, repository: DocumentRepos
     embedding_options.setdefault("document_prefix", embedding_preprocessing(application.data, application.provision_type, application.embedding_size)[0])
     result = embed_text_file(path=path, chunk_size=chunk_size, stride=stride,
                              model_session=model_session, **embedding_options)
-    return persist_document(path, storage, repository, chunk_size, stride, result, application)
+    return persist_document(path, storage, repository, chunk_size, stride, result, application, name=name)

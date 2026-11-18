@@ -26,6 +26,7 @@ def test_search_cli_uses_provider_and_repository(
                 document=Document(
                     id=uuid4(),
                     storage_key="documents/example.txt",
+                    name=str(uuid4()),
                 ),
                 embedding=Embedding(document_id=uuid4(), content="RAG retrieved chunk", embedding=[0.1]),
                 distance=0.23,
@@ -74,7 +75,7 @@ def test_embeddings_create_cli_dispatch(
     def fake_ingest(**kwargs):
         received.update(kwargs)
 
-        parent = Document(storage_key='documents/example.txt')
+        parent = Document(storage_key='documents/example.txt', name=str(uuid4()))
         return DocumentDetails(parent, [Embedding(document_id=parent.id, content='Test', embedding=[0.1])])
 
     monkeypatch.setattr(
@@ -88,7 +89,7 @@ def test_embeddings_create_cli_dispatch(
         "argv",
         [
             "rypiq",
-            "documents:create",
+            "documents:create", "--name", "test document",
             "samples/sample.txt",
             "--application-id",
             "00000000-0000-0000-0000-000000000001",

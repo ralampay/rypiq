@@ -64,6 +64,7 @@ def test_bad_context_size_does_not_construct_provider():
 def test_ingestion_application_releases_context_after_command_failure(monkeypatch):
     backend = MagicMock()
     backend.__enter__.return_value = backend
+    backend.documents.return_value.name_exists.return_value = False
     backend.applications.return_value.get.return_value = APPLICATION
     monkeypatch.setattr(application, 'get_database', lambda: backend)
     monkeypatch.setattr(app.storage.factory, 'get_storage', Mock())
@@ -73,6 +74,6 @@ def test_ingestion_application_releases_context_after_command_failure(monkeypatc
     command.execute.side_effect = ValueError('invalid input')
     monkeypatch.setattr(application, 'IngestDocument', lambda **kwargs: command)
     with pytest.raises(ValueError, match='invalid input'):
-        application.ingest_file(application_id=APPLICATION.id, path='unused', chunk_size=1, stride=1)
+        application.ingest_file(application_id=APPLICATION.id, path='unused', chunk_size=1, stride=1, name='test document')
     backend.__exit__.assert_called_once()
     model.close.assert_called_once()

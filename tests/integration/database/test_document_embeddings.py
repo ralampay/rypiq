@@ -15,7 +15,7 @@ from app.models.embedding import Embedding
 def test_aggregate_atomicity_cascade_and_chunk_metadata_search(backend):
     backend.create_database()
     application = backend.applications().create(Application(name='a', embedding_model='m', embedding_size=2))
-    parent = Document(application_id=application.id, storage_key='keep')
+    parent = Document(application_id=application.id, storage_key='keep', name=str(uuid4()))
     first = Embedding(document_id=parent.id, content='first', embedding=[1., 0.],
                       embedding_model='m', embedding_size=2, metadata={'tag': {'language': 'en'}})
     second = replace(first, id=uuid4(), content='second', chunk_index=1, embedding=[0., 1.], metadata={'tag': {'language': 'fr'}})
@@ -105,9 +105,9 @@ def test_chunk_service_scope_model_snapshots_and_immutable_parent(backend):
     backend.create_database()
     first = backend.applications().create(Application(name='first', embedding_model='m', embedding_size=2))
     second = backend.applications().create(Application(name='second', embedding_model='n', embedding_size=2))
-    parent = backend.documents().create(Document(application_id=first.id))
-    sibling_parent = backend.documents().create(Document(application_id=first.id))
-    outsider = backend.documents().create(Document(application_id=second.id))
+    parent = backend.documents().create(Document(application_id=first.id, name=str(uuid4())))
+    sibling_parent = backend.documents().create(Document(application_id=first.id, name=str(uuid4())))
+    outsider = backend.documents().create(Document(application_id=second.id, name=str(uuid4())))
     service = EmbeddingService(application_id=first.id, repository=backend.embeddings())
     chunk = Embedding(document_id=parent.id, content='chunk', embedding=[1., 0.],
                       embedding_model='m', embedding_size=2)
@@ -136,7 +136,7 @@ def test_chunk_service_scope_model_snapshots_and_immutable_parent(backend):
 def test_aggregate_snapshot_mismatch_does_not_persist_parent(backend):
     backend.create_database()
     application = backend.applications().create(Application(name='a', embedding_model='m', embedding_size=2))
-    parent = Document(application_id=application.id)
+    parent = Document(application_id=application.id, name=str(uuid4()))
     wrong = Embedding(document_id=parent.id, content='text', embedding=[1., 0.],
                       embedding_model='wrong', embedding_size=2)
     with pytest.raises(ValueError, match='match'):

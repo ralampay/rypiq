@@ -26,7 +26,7 @@ def test_applications_and_mixed_size_search(backend):
     second = applications.create(Application(name='second', embedding_model='b', embedding_size=3))
     assert asdict(applications.get(first.id)) == asdict(first)
     assert len(applications.list()) == 2
-    parents = [backend.documents().create(Document(application_id=value.id)) for value in (first, second)]
+    parents = [backend.documents().create(Document(application_id=value.id, name=str(uuid4()))) for value in (first, second)]
     a, b = owned(first, [1., 0.], parents[0].id), owned(second, [1., 0., 0.], parents[1].id)
     documents.create(a)
     documents.create(b)

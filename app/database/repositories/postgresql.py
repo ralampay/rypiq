@@ -1,5 +1,6 @@
 """SQLAlchemy Core persistence and application-scoped cosine search."""
 from uuid import UUID
+from contextlib import contextmanager
 import math
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -9,9 +10,9 @@ import sqlalchemy as sa
 from app.database.repositories.base import DocumentRepository, EmbeddingRepository, ApplicationRepository
 from app.models.application import Application, validate_application
 from app.models.embedding import Embedding, validate_embedding
-from app.models.document import Document, DocumentDetails
+from app.models.document import Document, DocumentDetails, DocumentSummary
 from app.models.search import SearchResult
-from app.models.validation import validate_document, validate_chunk, validate_metadata
+from app.models.validation import validate_document, validate_chunk, validate_metadata, normalize_document_name
 from app.providers.config import embedding_preprocessing
 
 
@@ -27,6 +28,42 @@ class PostgreSQLDocumentRepository(DocumentRepository):
         self.applications = table.metadata.tables['public.applications']
         self.embeddings = table.metadata.tables['public.embeddings']
 
+    @contextmanager
+    def _write(self):
+        try:
+            with self.engine.begin() as connection:
+                yield connection
+        except sa.exc.IntegrityError as error:
+            if (getattr(error.orig, 'sqlstate', None) == '23505'
+                    and getattr(getattr(error.orig, 'diag', None), 'constraint_name', None)
+                    == 'uq_documents_application_name'):
+                raise ValueError('A document with this name already exists in the application') from None
+            raise
+
+    def name_exists(self, *, application_id: UUID, name: str) -> bool:
+        if not isinstance(application_id, UUID):
+            raise ValueError('Document lookup requires an application UUID')
+        name = normalize_document_name(name)
+        with self.engine.connect() as connection:
+            return connection.scalar(sa.select(sa.exists().where(
+                self.table.c.application_id == application_id, self.table.c.name == name)))
+
+    def list_summaries(self, *, application_id: UUID, limit: int = 100,
+                       offset: int = 0) -> list[DocumentSummary]:
+        if not isinstance(application_id, UUID):
+            raise ValueError('Document listing requires an application UUID')
+        positive_limit(limit)
+        if type(offset) is not int or offset < 0:
+            raise ValueError('Offset must be a nonnegative integer')
+        query = sa.select(self.table.c.id, self.table.c.name,
+                          sa.func.count(self.embeddings.c.id).label('embedding_count')).select_from(
+                              self.table.outerjoin(self.embeddings)).where(
+                                  self.table.c.application_id == application_id).group_by(
+                                      self.table.c.id).order_by(self.table.c.id).limit(limit).offset(offset)
+        with self.engine.connect() as connection:
+            rows = connection.execute(query).mappings().all()
+        return [DocumentSummary(**row) for row in rows]
+
     def _application(self, connection, application_id):
         row = connection.execute(sa.select(self.applications).where(
             self.applications.c.id == application_id).with_for_update(read=True)).mappings().first()
@@ -36,7 +73,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
 
     def create(self, document):
         validate_document(document)
-        with self.engine.begin() as connection:
+        with self._write() as connection:
             self._application(connection, document.application_id)
             connection.execute(self.table.insert().values(**asdict(document)))
         return document
@@ -49,7 +86,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
             if item.document_id != document.id:
                 raise ValueError('Embedding belongs to another document')
             values.append({**asdict(item), 'embedding': vector})
-        with self.engine.begin() as connection:
+        with self._write() as connection:
             application = self._application(connection, document.application_id)
             for item in embeddings:
                 PostgreSQLEmbeddingRepository.validate_snapshot(item, application)
@@ -90,7 +127,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
             raise ValueError('Document does not match application scope')
         values = asdict(document)
         values['updated_at'] = datetime.now(timezone.utc)
-        with self.engine.begin() as connection:
+        with self._write() as connection:
             self._application(connection, document.application_id)
             original = connection.execute(self._scope(sa.select(self.table).where(
                 self.table.c.id == document.id), application_id).with_for_update()).mappings().first()
@@ -103,7 +140,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
         return document
 
     def delete(self, id, *, application_id=None):
-        with self.engine.begin() as connection:
+        with self._write() as connection:
             return bool(connection.execute(self._scope(self.table.delete().where(
                 self.table.c.id == id), application_id)).rowcount)
 

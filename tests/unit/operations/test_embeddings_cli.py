@@ -17,8 +17,10 @@ def resources(monkeypatch, tmp_path):
                         data={'chunking': {'chunk_size': 5, 'stride': 5}})
     backend = MagicMock()
     backend.__enter__.return_value = backend
+    backend.documents.return_value.name_exists.return_value = False
     backend.applications.return_value.get.return_value = value
     backend.settings = {'dimensions': 8}
+    backend.documents.return_value.name_exists.return_value = False
     repository = backend.documents.return_value
     repository.create.side_effect = lambda record: record
     repository.delete.return_value = True
@@ -36,7 +38,7 @@ def resources(monkeypatch, tmp_path):
 
 def create_args(resources):
     value, _, _, _, _, source = resources
-    return ['documents:create', str(source), '--application-id', str(value.id)]
+    return ['documents:create', '--name', 'test document', str(source), '--application-id', str(value.id)]
 
 
 def test_create_persists_and_exports_chunk_summaries(resources, tmp_path, capsys):
@@ -118,7 +120,7 @@ def test_delete_one_chunk_preserves_storage(resources, capsys, found):
 def test_create_requires_valid_application_id_before_io(resources, options):
     _, backend, _, provider, storage, source = resources
     with pytest.raises(SystemExit):
-        cli.main(['documents:create', str(source), *options])
+        cli.main(['documents:create', '--name', 'test document', str(source), *options])
     backend.__enter__.assert_not_called()
     provider.embed.assert_not_called()
     storage.save.assert_not_called()
@@ -321,7 +323,7 @@ def test_invalid_batch_size_rejected_before_embedding(resources):
 
 def test_document_show_includes_ordered_summaries_and_no_vectors(resources, capsys):
     value, backend, repository, provider, storage, _ = resources
-    parent = Document(application_id=value.id)
+    parent = Document(application_id=value.id, name=str(uuid4()))
     chunks = [Embedding(document_id=parent.id, content='later', embedding=[1.], chunk_index=1),
               Embedding(document_id=parent.id, content='first', embedding=[1.], chunk_index=0)]
     repository.details.return_value = DocumentDetails(parent, chunks)

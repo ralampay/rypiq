@@ -72,8 +72,13 @@ def document_json(value: DocumentDetails) -> dict:
 
 
 def documents_create(args: Namespace) -> dict:
-    return document_json(application.create_document(application_id=args.application_id, path=args.path,
+    return document_json(application.create_document(name=args.name, application_id=args.application_id, path=args.path,
                                                       batch_size=args.batch_size))
+
+
+def documents_list(args: Namespace) -> list[dict]:
+    return [dict(id=str(value.id), name=value.name, embedding_count=value.embedding_count)
+            for value in application.enumerate_documents(application_id=args.application_id)]
 
 
 def documents_show(args: Namespace) -> dict:
@@ -163,6 +168,7 @@ HANDLERS = {
     'process': process,
     'documents:create': documents_create,
     'documents:show': documents_show,
+    'documents:list': documents_list,
     'documents:delete': documents_delete,
     'embeddings:show': embeddings_show,
     'embeddings:delete': embeddings_delete,

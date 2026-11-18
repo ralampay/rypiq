@@ -23,7 +23,7 @@ def test_remote_pipeline_preserves_application_scope_and_storage_order(backend, 
                                              embedding_size=2, data=config)
     source = tmp_path / 'source.txt'
     source.write_text('hello world')
-    docs = application.ingest_file(path=str(source), chunk_size=100, stride=100, application_id=first.id)
+    docs = application.ingest_file(path=str(source), chunk_size=100, stride=100, application_id=first.id, name='test document')
     assert len(docs.embeddings) == 1 and docs.document.application_id == first.id
     assert docs.embeddings[0].provision_type == provider and docs.embeddings[0].embedding_model == 'remote-model'
     assert (storage.root / docs.document.storage_key).read_text() == 'hello world'
@@ -38,6 +38,6 @@ def test_remote_pipeline_preserves_application_scope_and_storage_order(backend, 
                                                  embedding_model='remote-model', embedding_size=3, data=config)
     stored_before = [item.key for item in storage.list()]
     with pytest.raises(ProviderError, match='response'):
-        application.ingest_file(path=str(source), chunk_size=100, stride=100, application_id=wrong_size.id)
+        application.ingest_file(path=str(source), chunk_size=100, stride=100, application_id=wrong_size.id, name='test document')
     assert [item.key for item in storage.list()] == stored_before
     assert len(backend.documents().list()) == 1

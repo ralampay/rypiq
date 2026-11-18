@@ -232,17 +232,17 @@ def test_legacy_ingestion_honors_saved_runtime_options(tmp_path, monkeypatch):
                         data={'provider_config': {'embedding': {'context_size': 4096, 'gpu_layers': 2}}})
     fake = Mock(return_value={'model': 'weights.gguf', 'chunks': [{'text': 'hello', 'embedding': [1., 0.], 'index': 0, 'start': 0, 'end': 5}]})
     monkeypatch.setattr(application, 'embed_text_file', fake)
-    application.ingest_document(str(source), Mock(), Mock(), 10, 10, application=value)
+    application.ingest_document(str(source), Mock(), Mock(name_exists=Mock(return_value=False)), 10, 10, application=value, name='test document')
     assert fake.call_args.kwargs['context_size'] == 4096
     assert fake.call_args.kwargs['gpu_layers'] == 2
 
 
 def test_legacy_local_composition_rejects_remote_before_effects():
     from app.application import ingest_document
-    storage, repository = Mock(), Mock()
+    storage, repository = Mock(name_exists=Mock(return_value=False)), Mock()
     value = Application(name='a', embedding_model='remote', provision_type='openai')
     with pytest.raises(ValueError, match='injected provider'):
-        ingest_document('unused.txt', storage, repository, 10, 10, application=value)
+        ingest_document('unused.txt', storage, repository, 10, 10, application=value, name='test document')
     assert not storage.mock_calls and not repository.mock_calls
 
 
@@ -255,10 +255,10 @@ def test_mismatched_provider_identity_never_persists_or_searches(tmp_path, provi
     value = Application(name='a', embedding_model='configured', provision_type=provider_type, embedding_size=2)
     model = Mock(model_name='wrong')
     model.embed.return_value = [[1., 0.]]
-    storage, repository = Mock(), Mock()
+    storage, repository = Mock(name_exists=Mock(return_value=False)), Mock()
     with pytest.raises(ValueError, match='model must match'):
         IngestDocument(path=str(source), chunk_size=10, stride=10, application=value,
-                       embedding_provider=model, storage=storage, repository=repository).execute()
+                       embedding_provider=model, storage=storage, repository=repository, name='test document').execute()
     storage.save.assert_not_called()
     repository.create.assert_not_called()
     model.embed.assert_not_called()
@@ -314,6 +314,7 @@ def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, mon
     value = Application(name='a', embedding_model='weights.gguf', inference_model='chat.gguf', embedding_size=2)
     configured_backend.applications.return_value.get.return_value = value
     configured_backend.embeddings.return_value.search_by_vector.return_value = []
+    configured_backend.documents.return_value.name_exists.return_value = False
     source = tmp_path / 'input.txt'
     source.write_text('hello')
     storage = LocalStorage(root=tmp_path / 'objects')
@@ -328,8 +329,8 @@ def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, mon
         for _ in range(2):
             embed_text_file(str(source), 10, 10, model_path=value.embedding_model, model_session=session)
             application.ingest_file(path=str(source), chunk_size=10, stride=10,
-                                    application_id=value.id, model_session=session)
-            ingest_document(str(source), storage, Mock(), 10, 10, application=value, model_session=session)
+                                    application_id=value.id, model_session=session, name='test document')
+            ingest_document(str(source), storage, Mock(name_exists=Mock(return_value=False)), 10, 10, application=value, model_session=session, name='test document')
             assert application.search_documents(query='hello', application_id=value.id, model_session=session) == []
             assert application.chat(messages=[ChatMessage('user', 'hi')], application_id=value.id,
                                     model_session=session).text == 'answer'

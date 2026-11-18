@@ -134,10 +134,10 @@ def test_embedding_and_ingestion(document_file):
     provider.reset_mock()
     storage = Mock()
     storage.save.return_value = SimpleNamespace(key='owned', content_type='test/type', checksum='checksum')
-    repository = Mock()
+    repository = Mock(name_exists=Mock(return_value=False))
     docs = IngestDocument(path=str(path), chunk_size=1000, stride=1000,
                           application=Application(name='test', embedding_model='fake.gguf', embedding_size=3),
-                          embedding_provider=provider, storage=storage, repository=repository).execute()
+                          embedding_provider=provider, storage=storage, repository=repository, name='test document').execute()
     assert docs.embeddings[0].content == expected
     assert docs.document.filename == path.name
     assert storage.save.call_args.kwargs['source'] == path
@@ -149,14 +149,14 @@ def test_embedding_and_ingestion(document_file):
 def test_corrupt_file_fails_before_embedding_or_writes(tmp_path, suffix):
     path = tmp_path / ('bad.' + suffix)
     path.write_bytes(b'not a document')
-    factory, storage, repository, provider = Mock(), Mock(), Mock(), Mock(model_name='fake.gguf')
+    factory, storage, repository, provider = Mock(), Mock(), Mock(name_exists=Mock(return_value=False)), Mock(model_name='fake.gguf')
     with pytest.raises(ValueError, match='Cannot extract'):
         embed_file(path=str(path), chunk_size=10, stride=10, provider_factory=factory)
     factory.assert_not_called()
     with pytest.raises(ValueError, match='Cannot extract'):
         IngestDocument(path=str(path), chunk_size=10, stride=10,
                        application=Application(name='test', embedding_model='fake.gguf', embedding_size=3),
-                       embedding_provider=provider, storage=storage, repository=repository).execute()
+                       embedding_provider=provider, storage=storage, repository=repository, name='test document').execute()
     provider.embed.assert_not_called()
     storage.save.assert_not_called()
     repository.create_with_embeddings.assert_not_called()

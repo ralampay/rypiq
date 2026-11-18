@@ -17,7 +17,7 @@ from app.operations.documents.search import SearchDocuments
 def test_invalid_application_never_writes(changes):
     values = dict(name='test', embedding_model='model', embedding_size=3)
     values.update(changes)
-    repository = Mock()
+    repository = Mock(name_exists=Mock(return_value=False))
     command = CreateApplication(application=Application(**values), repository=repository)
     repository.create.assert_not_called()
     with pytest.raises(ValueError):
@@ -26,7 +26,7 @@ def test_invalid_application_never_writes(changes):
 
 
 def test_create_returns_repository_result_and_missing_application_raises():
-    repository = Mock()
+    repository = Mock(name_exists=Mock(return_value=False))
     application = Application(name='test', embedding_model='model')
     repository.create.return_value = application
     assert CreateApplication(application=application, repository=repository).execute() is application
@@ -41,11 +41,11 @@ def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provide
     source.write_text('hello')
     application = Application(name='test', embedding_model='remote/model', embedding_size=2,
                               provision_type=provider_type)
-    provider, repository, storage = Mock(model_name='remote/model'), Mock(), Mock()
+    provider, repository, storage = Mock(model_name='remote/model'), Mock(name_exists=Mock(return_value=False)), Mock()
     provider.embed.return_value = [[1., 0.]]
     storage.save.return_value = Mock(key='stored', content_type='text/plain', checksum='checksum')
     documents = IngestDocument(path=str(source), chunk_size=10, stride=10, application=application,
-                               embedding_provider=provider, repository=repository, storage=storage).execute()
+                               embedding_provider=provider, repository=repository, storage=storage, name='test document').execute()
     assert documents.embeddings[0].embedding_model == 'remote/model'
     provider.embed.assert_called_once_with(['hello'])
     provider.embed.reset_mock()
@@ -65,5 +65,5 @@ def test_bad_application_vector_rejected_before_storage(tmp_path, vector):
     storage = Mock()
     with pytest.raises(ValueError, match='Embedding'):
         IngestDocument(path=str(source), chunk_size=10, stride=10, application=application,
-                       embedding_provider=provider, repository=Mock(), storage=storage).execute()
+                       embedding_provider=provider, repository=Mock(name_exists=Mock(return_value=False)), storage=storage, name='test document').execute()
     storage.save.assert_not_called()

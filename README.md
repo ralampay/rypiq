@@ -86,7 +86,7 @@ rypiq applications:create --name 'Document search' \
   --chunk-size 500 --stride 400
 
 # Replace APPLICATION_UUID with the ID returned above:
-rypiq documents:create /path/to/document.pdf --application-id APPLICATION_UUID
+rypiq documents:create --name "Example document" /path/to/document.pdf --application-id APPLICATION_UUID
 ```
 
 Model and chunking settings are saved on the application. Chunk size and stride
@@ -140,7 +140,7 @@ rypiq applications:create --name 'My application' \
   --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768
 rypiq applications:list
 # Use the UUID returned by applications:create:
-rypiq documents:create samples/sample.txt --application-id APPLICATION_UUID
+rypiq documents:create --name "Example document" samples/sample.txt --application-id APPLICATION_UUID
 rypiq search 'What is this document about?' --application-id APPLICATION_UUID \
   --model models/embeddinggemma-300m-Q4_0.gguf
 ```
@@ -295,8 +295,8 @@ Install the project dependencies to obtain the document readers; no separate ext
 
 ```sh
 rypiq process text-file report.pdf --chunk_size 500 --stride 400
-rypiq documents:create presentation.pptx --application-id APPLICATION_UUID
-rypiq documents:create workbook.xlsx --application-id APPLICATION_UUID
+rypiq documents:create --name "Presentation" presentation.pptx --application-id APPLICATION_UUID
+rypiq documents:create --name "Workbook" workbook.xlsx --application-id APPLICATION_UUID
 ```
 
 ### Embedding commands
@@ -305,17 +305,29 @@ Documents represent original files; embeddings contain their searchable text chu
 
 | Command | Behavior |
 | --- | --- |
-| `rypiq documents:create PATH --application-id UUID` | Store the original file, generate embeddings, and persist one parent document with its chunks atomically. |
+| `rypiq documents:create PATH --application-id UUID --name NAME` | Store the original file, generate embeddings, and persist one parent document with its chunks atomically. |
+| `rypiq documents:list --application-id UUID [--output FORMAT]` | List all document IDs, names, and embedding counts. |
 | `rypiq documents:show --id UUID` | Show parent fields and ordered chunk summaries. |
 | `rypiq documents:delete --id UUID` | Delete the parent and all its embeddings; preserve the original file. |
 | `rypiq embeddings:show --id UUID` | Show one chunk with text, vector, model information, JSON metadata, and `document_id`. |
 | `rypiq embeddings:delete --id UUID` | Delete one chunk; preserve its parent, siblings, and original file. |
 
+Creation requires `--name NAME`. Names are trimmed, nonempty, and unique within
+an application; uniqueness is case-sensitive (`Report` and `report` are distinct).
+Reusing a name in another application is allowed. Duplicate creation fails before
+embedding where possible; a database constraint also handles concurrent requests.
+
+`documents:list --application-id UUID` lists every document in UUID order, with
+`ID`, `NAME`, and `EMBEDDINGS` columns. Use `--output json` for an array of
+`{id, name, embedding_count}` records. Counts reflect currently stored embeddings,
+including zero for empty parents. Empty applications produce headers or `[]`;
+a missing application fails. There are no CLI pagination options.
+
 Creation uses saved application model/provider and chunking settings. It accepts
 `--batch_size N` (positive integer, default 1). Configure chunking with
 `applications:create` or `applications:update --chunk-size N --stride N`;
 missing settings default independently to 500/400. Creation does not accept
-per-command model or chunking overrides. Repeated creation makes new records.
+per-command model or chunking overrides. Use a distinct name when creating another document in the same application.
 
 Document create/show return the parent fields, `embedding_count`, and `embeddings`
 ordered by chunk index and ID. Each summary contains `id`, `chunk_index`, `content`,
@@ -335,7 +347,7 @@ There is no embedding update CLI. The former `embeddings:create`, `embed`, and
 `ingest` commands have been removed.
 
 ```sh
-rypiq documents:create report.pdf --application-id APPLICATION_UUID --output document.json
+rypiq documents:create --name "Example document" report.pdf --application-id APPLICATION_UUID --output document.json
 rypiq documents:show --id DOCUMENT_UUID
 rypiq embeddings:show --id EMBEDDING_UUID --output chunk.json --embeddings-full
 rypiq embeddings:delete --id EMBEDDING_UUID
@@ -347,7 +359,7 @@ rypiq documents:delete --id DOCUMENT_UUID
 Use `documents:create` above to ingest documents, then search within their application:
 
 ```sh
-rypiq documents:create samples/sample.txt --application-id APPLICATION_UUID
+rypiq documents:create --name "Example document" samples/sample.txt --application-id APPLICATION_UUID
 rypiq search 'What is this document about?' --application-id APPLICATION_UUID --limit 5
 ```
 

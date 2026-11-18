@@ -40,7 +40,7 @@ The explicit schema in [app/database/schema.py](../app/database/schema.py) decla
 `applications`, `documents`, and `embeddings`. Applications retain their model,
 provider, dimension, API-key, and JSONB configuration fields.
 
-A `Document` is one original file: UUID, application ownership, storage key,
+A `Document` is one original file: UUID, required name, application ownership, storage key,
 filename, content type, source, JSONB metadata, and timestamps. An `Embedding`
 belongs to a document and stores chunk `content`, vector, chunk index, model
 snapshot (`model_name`, `embedding_model`, `embedding_size`, `provision_type`),
@@ -55,6 +55,13 @@ Search joins through the parent for application scope and performs exact cosine
 ordering with embedding-ID tie-breaking. Metadata filters use parameterized JSONB
 containment before ranking, backed by a GIN metadata index. No approximate vector
 index is created. Foreign-key lookup columns are indexed.
+
+Document names are trimmed and nonempty. Fresh setup and migration install the
+named `UNIQUE(application_id, name)` constraint and an empty-name check on the
+non-null text column. Uniqueness is case-sensitive; applications may reuse names.
+Document service/repository updates may rename a document under the same rules.
+Name conflicts produce a safe error, including concurrent writes. Other database
+integrity failures retain their normal exception behavior.
 
 ### Existing database upgrade
 
@@ -71,6 +78,14 @@ groups. Every chunk retains its vector, text, model snapshot, metadata, and
 timestamps. Parents retain file fields, shared file metadata, and original
 `source_id` in metadata. Their timestamps span their children's creation/update
 times. Stored files are never read or modified by this upgrade.
+
+Existing parent-document databases receive names without changing their IDs or
+timestamps. Unique trimmed filenames become names. Duplicate filenames receive
+`filename (UUID)` names; empty filenames receive `Document UUID`. Unique filenames
+are reserved first, then generated names are assigned in UUID order with numeric
+suffixes if necessary. Allocation is per application. Both older chunk schemas
+also receive these names during their upgrade. The name column, backfill, and
+constraints are committed together; failures roll back all changes.
 
 The upgrade checks row counts and validates the resulting schema before commit.
 Failure restores the old schema and data. Unknown/partially modified schemas and
@@ -124,8 +139,10 @@ singular names and `ls-applications` are no longer accepted.
 
 ## Embedding commands
 
-Use `documents:create PATH --application-id UUID` to save an original and generate
-its embeddings. `documents:show --id UUID` returns parent fields and ordered chunk
+Use `documents:create PATH --application-id UUID --name NAME` to save an original and generate
+its embeddings. Required `--name` supplies the document reference.
+`documents:list --application-id UUID` shows every ID, name, and current embedding
+count; use `--output json` for structured summaries. `documents:show --id UUID` returns parent fields and ordered chunk
 summaries; `documents:delete --id UUID` removes the parent and all chunks.
 `embeddings:show` and `embeddings:delete` address individual chunks by `--id`.
 A missing show fails; an absent delete returns `{"deleted": false}`.
@@ -156,7 +173,7 @@ with get_database() as database:
         application_id=application.id,
         repository=database.documents(), applications=database.applications(),
     )
-    document = documents.create(Document(filename='example.txt'))
+    document = documents.create(Document(filename='example.txt', name='Example document'))
     document = documents.get(document.id)
     documents.update(replace(document, metadata={'reviewed': True}))
     page = documents.list(limit=10, offset=0)

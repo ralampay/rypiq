@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from app.models.document import Document, DocumentDetails
+from app.models.document import Document, DocumentDetails, DocumentSummary
 from app.models.embedding import Embedding
 from app.models.application import Application
 from app.models.search import SearchResult
@@ -42,6 +42,15 @@ class DocumentRepository(ABC):
 
     @abstractmethod
     def details(self, id: UUID, *, application_id: UUID | None = None) -> DocumentDetails | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def name_exists(self, *, application_id: UUID, name: str) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_summaries(self, *, application_id: UUID, limit: int = 100,
+                       offset: int = 0) -> list[DocumentSummary]:
         raise NotImplementedError
 
 

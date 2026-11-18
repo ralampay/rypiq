@@ -17,7 +17,14 @@ def validate_metadata(value: dict) -> None:
         raise ValueError('Metadata must be a JSON object') from None
 
 
+def normalize_document_name(name: str) -> str:
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError('Document name must be a nonempty string')
+    return name.strip()
+
+
 def validate_document(document: 'Document') -> None:
+    document.name = normalize_document_name(document.name)
     if not isinstance(document.id, UUID) or not isinstance(document.application_id, UUID):
         raise ValueError('Document requires UUID identity and application ID')
     for name in ('filename', 'content_type', 'source'):

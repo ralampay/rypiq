@@ -1,3 +1,4 @@
+from uuid import uuid4
 import json
 from unittest.mock import Mock
 
@@ -29,7 +30,7 @@ def test_process_text_rejects_chunk_options(capsys):
 
 def test_embeddings_create_empty_result_has_empty_chunks(monkeypatch, capsys):
     from app.models.document import Document, DocumentDetails
-    monkeypatch.setattr(cli_handlers.application, 'create_document', lambda **kwargs: DocumentDetails(Document(), []))
-    cli.main(['documents:create', 'unused.txt', '--application-id', '00000000-0000-0000-0000-000000000001'])
+    monkeypatch.setattr(cli_handlers.application, 'create_document', lambda **kwargs: DocumentDetails(Document(name=str(uuid4())), []))
+    cli.main(['documents:create', '--name', 'test document', 'unused.txt', '--application-id', '00000000-0000-0000-0000-000000000001'])
     result = json.loads(capsys.readouterr().out)
     assert result['embedding_count'] == 0 and result['embeddings'] == []

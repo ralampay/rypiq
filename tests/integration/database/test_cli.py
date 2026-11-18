@@ -1,3 +1,4 @@
+from uuid import uuid4
 import json
 import os
 from pathlib import Path
@@ -114,7 +115,7 @@ def test_application_rename_and_delete_preserve_related_data(invoke, backend):
     repository = backend.applications()
     value = repository.create(Application(name='Original', embedding_model='model', embedding_size=3))
     document = backend.documents().create(Document(
-        filename='Keep this document', application_id=value.id))
+        filename='Keep this document', application_id=value.id, name=str(uuid4())))
 
     renamed = invoke('applications:update', str(value.id), '--name', 'Renamed')
     assert renamed.returncode == 0, renamed.stderr
@@ -151,7 +152,7 @@ def test_embedding_cli_lifecycle_with_remote_provider(invoke, backend, server, t
     source = tmp_path / 'source.txt'
     source.write_text('abcdefghij')
     output = tmp_path / 'created.json'
-    created = invoke('documents:create', str(source), '--application-id', str(value.id), '--output', str(output))
+    created = invoke('documents:create', '--name', 'test document', str(source), '--application-id', str(value.id), '--output', str(output))
     assert created.returncode == 0, created.stderr
     result = json.loads(created.stdout)
     assert result == json.loads(output.read_text())
@@ -188,3 +189,31 @@ def test_embedding_cli_lifecycle_with_remote_provider(invoke, backend, server, t
     assert json.loads(deleted_parent.stdout) == {'deleted': True}
     assert backend.embeddings().get(UUID(second['id'])) is None
     assert stored.read_text() == source.read_text()
+
+
+def test_document_listing_all_names_and_counts(invoke, backend):
+    from app.models.document import Document
+    from app.models.embedding import Embedding
+    from app.cli import format_document_table
+
+    backend.create_database()
+    application = backend.applications().create(Application(name='listing', embedding_model='m', embedding_size=2))
+    empty = invoke('documents:list', '--application-id', str(application.id), '--output', 'json')
+    assert empty.returncode == 0, empty.stderr
+    assert json.loads(empty.stdout) == []
+    parents = [backend.documents().create(Document(name=f'Name {index}', application_id=application.id))
+               for index in range(101)]
+    backend.embeddings().create(Embedding(document_id=parents[0].id, content='chunk', embedding=[1., 0.],
+                                         embedding_model='m', embedding_size=2))
+    parents.sort(key=lambda document: document.id)
+    expected = [dict(id=str(document.id), name=document.name,
+                     embedding_count=1 if document.name == 'Name 0' else 0) for document in parents]
+    listed = invoke('documents:list', '--application-id', str(application.id), '--output', 'json')
+    assert listed.returncode == 0, listed.stderr
+    assert json.loads(listed.stdout) == expected
+    for arguments in ((), ('--output', 'text')):
+        listed = invoke('documents:list', '--application-id', str(application.id), *arguments)
+        assert listed.returncode == 0, listed.stderr
+        assert listed.stdout == format_document_table(expected) + '\n'
+    missing = invoke('documents:list', '--application-id', str(uuid4()))
+    assert missing.returncode != 0 and missing.stdout == ''

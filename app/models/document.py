@@ -14,6 +14,7 @@ def utc_now() -> datetime:
 
 @dataclass
 class Document:
+    name: str
     application_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
     storage_key: str | None = None
@@ -29,3 +30,10 @@ class Document:
 class DocumentDetails:
     document: Document
     embeddings: list['Embedding']
+
+
+@dataclass(frozen=True)
+class DocumentSummary:
+    id: UUID
+    name: str
+    embedding_count: int

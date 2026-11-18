@@ -30,7 +30,7 @@ flowchart TD
 2. `app.cli_parser.build_parser()` defines syntax and shared options without constructing resources.
 3. `app.cli_handlers` maps parsed values to explicit Python arguments. Its handlers convert domain objects into the existing JSON shapes.
 4. `app.application` constructs configured dependencies through factories, invokes shared operations, and releases the resources it owns.
-5. `app.cli` formats output: JSON to stdout (with an optional full export for `documents:create`, `documents:show`, and `embeddings:show`), or a text table for `applications:list` by default. It converts failures into sanitized, nonzero exits.
+5. `app.cli` formats output: JSON to stdout (with an optional full export for `documents:create`, `documents:show`, and `embeddings:show`), or a text table for `applications:list` and `documents:list` by default. It converts failures into sanitized, nonzero exits.
 
 `applications:list` defaults to a text table and accepts `--output text|json` as a
 format selector. Its handler projects only IDs and names from
@@ -49,6 +49,19 @@ to `IngestDocument`. Missing chunk settings default independently to 500/400.
 Document show/delete use the document repository; embedding show/delete use the
 embedding repository. Both use database-only facades and globally unique UUIDs.
 They neither construct providers nor touch object storage.
+
+`documents:list --application-id UUID` calls `application.enumerate_documents()`.
+Its injected `list_documents()` operation verifies the application once, then
+fetches 100-row summary pages through `DocumentRepository.list_summaries()`.
+Each query joins and counts embeddings without loading their text or vectors.
+The facade owns one database context; no providers or storage are constructed.
+The handler serializes IDs, names, and current embedding counts. The CLI prints a
+text table by default or JSON with `--output json`, only after every page succeeds.
+
+Document ingestion APIs and commands require keyword-only `name`; the CLI requires
+`--name`. Names are trimmed and checked for conflicts before embedding or storage.
+A database unique constraint remains authoritative if another writer wins the race;
+failed ingestion rolls back its rows and compensates its newly stored original.
 
 `app.cli_output` validates export destinations and writes complete JSON through a
 temporary file followed by atomic replacement. Export runs only after successful
@@ -90,7 +103,7 @@ vectors = embed_file(
     path='samples/sample.txt', chunk_size=500, stride=400,
     model_path='models/embeddinggemma-300m-Q4_0.gguf',
 )
-documents = create_document(application_id=application.id, path='samples/sample.txt')
+documents = create_document(application_id=application.id, path='samples/sample.txt', name='Example document')
 first = show_embedding(embedding_id=documents.embeddings[0].id)
 matches = search_documents(application_id=application.id, query='What does this document describe?', limit=5)
 ```
@@ -126,6 +139,7 @@ with create_context() as context:
             path='samples/sample.txt', chunk_size=500, stride=400,
             embedding_provider=provider,
             repository=context.documents, storage=context.storage,
+            name='Example document',
         ).execute()
         matches = SearchDocuments(
             application=application,
@@ -134,7 +148,7 @@ with create_context() as context:
         ).execute()
 ```
 
-Constructors only capture inputs. Execution performs validation and effects. Commands borrow their dependencies and never close them. Repeated ingestion creates new stored objects and records; it is not an idempotent retry mechanism.
+Constructors only capture inputs. Execution performs validation and effects. Commands borrow their dependencies and never close them. Repeated ingestion requires a distinct name within the application and creates new stored objects and records; it is not an idempotent retry mechanism.
 
 For database-only library work, prefer `with app.db.open_document_repository() as repository:` or `with get_database() as backend:`. `DatabaseCommands(backend)` can reuse an already-owned backend without loading configuration or closing it. The older `get_document_repository()` factory remains available, but its caller must call `repository.close()`.
 

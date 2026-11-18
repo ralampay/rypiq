@@ -39,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_chunk_options(process, required=False)
 
     document_create = commands.add_parser('documents:create', help='Store a file and persist its chunk embeddings')
+    document_create.add_argument('--name', required=True, help='Document name, unique within the application')
     document_create.add_argument('path', help='Path to a supported document')
     document_create.add_argument('--application-id', type=UUID, required=True)
     document_create.add_argument('--batch_size', type=int, default=1)
@@ -46,6 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     embedding_show.add_argument('--id', type=UUID, required=True)
     embedding_delete = commands.add_parser('embeddings:delete', help='Delete one chunk; preserve stored files')
     embedding_delete.add_argument('--id', type=UUID, required=True)
+    document_list = commands.add_parser('documents:list', help='List every document name and embedding count in an application')
+    document_list.add_argument('--application-id', type=UUID, required=True)
+    document_list.add_argument('--output', choices=['text', 'json'], default='text')
     document_show = commands.add_parser('documents:show', help='Show a document and its chunk summaries')
     document_show.add_argument('--id', type=UUID, required=True)
     document_delete = commands.add_parser('documents:delete', help='Delete a document and its chunks; preserve stored files')

@@ -26,6 +26,7 @@ def build_metadata(dimensions=768):
     )
     sa.Table(
         'documents', metadata,
+        sa.Column('name', sa.Text(), nullable=False),
         sa.Column('id', UUID(as_uuid=True), primary_key=True),
         sa.Column('application_id', UUID(as_uuid=True),
                   sa.ForeignKey('public.applications.id', ondelete='RESTRICT'), nullable=False, index=True),
@@ -36,6 +37,8 @@ def build_metadata(dimensions=768):
         sa.Column('metadata', JSONB(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint('application_id', 'name', name='uq_documents_application_name'),
+        sa.CheckConstraint("length(name) > 0", name='ck_documents_name_nonempty'),
     )
     embeddings = sa.Table(
         'embeddings', metadata,
@@ -130,6 +133,9 @@ def initialize_schema(engine, metadata):
             if 'embedding' in columns:
                 from app.database.upgrade import split_documents
                 split_documents(connection, metadata)
+            elif 'name' not in columns:
+                from app.database.upgrade import add_document_names
+                add_document_names(connection, metadata)
         for table in metadata.sorted_tables:
             if table.name in sa.inspect(connection).get_table_names(schema='public'):
                 validate_table(connection, table)

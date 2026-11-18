@@ -24,7 +24,7 @@ def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path
         {'text': 'example', 'embedding': [1., 0., 0.], 'index': 0, 'start': 0, 'end': 7},
     ]}
     monkeypatch.setattr(application_api, 'embed_text_file', lambda **kwargs: result)
-    documents = application_api.ingest_document(str(source), storage, repository, 7, 7, application=application)
+    documents = application_api.ingest_document(str(source), storage, repository, 7, 7, application=application, name='test document')
     stored = backend.embeddings().get(documents.embeddings[0].id)
     assert stored.model_name == 'example.gguf'
     assert (storage.root / documents.document.storage_key).read_text() == source.read_text()
@@ -32,7 +32,7 @@ def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path
     before = [item.key for item in storage.list()]
     result['chunks'].append({'text': 'invalid', 'embedding': [1., 0.], 'index': 1, 'start': 7, 'end': 9})
     with pytest.raises(ValueError, match='Embedding'):
-        application_api.ingest_document(str(source), storage, repository, 7, 7, application=application)
+        application_api.ingest_document(str(source), storage, repository, 7, 7, application=application, name='invalid document')
     assert [item.id for item in repository.list()] == [documents.document.id]
     assert [item.key for item in storage.list()] == before
 
@@ -59,7 +59,7 @@ def test_real_model_cli_ingestion_search_and_reset(backend, tmp_path):
     application = invoke('applications:create', '--name', 'test', '--embedding-model', str(model), '--chunk-size', '200', '--stride', '200')
     source = tmp_path / 'notes.txt'
     source.write_text('PostgreSQL stores structured data. Vector search retrieves related documents.')
-    ingested = invoke('documents:create', str(source), '--application-id', application['id'])
+    ingested = invoke('documents:create', '--name', 'test document', str(source), '--application-id', application['id'])
     assert ingested['embedding_count'] == 1
     results = invoke('search', 'Which database stores structured data?', '--application-id', application['id'], '--model', str(model))
     assert results[0]['content'] == source.read_text()

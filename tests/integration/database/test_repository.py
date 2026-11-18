@@ -19,8 +19,8 @@ def test_crud_metadata_and_stable_pagination(backend, application):
     backend.create_database()
     repository = backend.documents()
     first = Document(application_id=application.id, id=UUID(int=1), filename='first',
-                     metadata={'nested': {'a': [1, 2]}}, storage_key='documents/a.txt')
-    second = Document(application_id=application.id, id=UUID(int=2), filename='second')
+                     metadata={'nested': {'a': [1, 2]}}, storage_key='documents/a.txt', name=str(uuid4()))
+    second = Document(application_id=application.id, id=UUID(int=2), filename='second', name=str(uuid4()))
     repository.create(second)
     repository.create(first)
     loaded = repository.get(first.id)
@@ -45,7 +45,7 @@ def test_crud_metadata_and_stable_pagination(backend, application):
 def test_search_uses_pgvector_sql_and_scalar_filters(backend, application):
     backend.create_database()
     repository = backend.embeddings()
-    parent = backend.documents().create(Document(application_id=application.id))
+    parent = backend.documents().create(Document(application_id=application.id, name=str(uuid4())))
     docs = [Embedding(document_id=parent.id, content='exact', embedding=[1., 0., 0.], model_name='a'),
             Embedding(document_id=parent.id, content='orthogonal', embedding=[0., 1., 0.], model_name='a'),
             Embedding(document_id=parent.id, content='opposite', embedding=[-1., 0., 0.], model_name='b')]
@@ -72,7 +72,7 @@ def test_search_uses_pgvector_sql_and_scalar_filters(backend, application):
                                     [float('inf'), 1., 0.], [1e100, 0., 0.], ['x', 1., 0.]])
 def test_invalid_vectors_are_rejected(backend, application, vector):
     repository = backend.embeddings()
-    parent = Document(application_id=application.id)
+    parent = Document(application_id=application.id, name=str(uuid4()))
     with pytest.raises(ValueError, match='[Ee]mbedding'):
         repository.create(Embedding(document_id=parent.id, content='bad', embedding=vector, embedding_size=3))
     with pytest.raises(ValueError, match='[Ee]mbedding'):

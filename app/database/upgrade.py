@@ -73,6 +73,8 @@ def split_documents(connection, metadata):
     metadata.create_all(connection)
     documents = metadata.tables['public.documents']
     embeddings = metadata.tables['public.embeddings']
+    parents = []
+    children = []
     for chunks in groups.values():
         first = chunks[0]
         document_id = uuid4()
@@ -80,16 +82,67 @@ def split_documents(connection, metadata):
                   if key not in ('start', 'end', 'chunk_size', 'stride')
                   and all(row['metadata'].get(key) == value for row in chunks)}
         shared['source_id'] = str(first['source_id']) if first['source_id'] else None
-        connection.execute(documents.insert().values(
+        parents.append(dict(
             id=document_id, application_id=first['application_id'],
             storage_key=first['storage_key'], filename=first['filename'],
             content_type=first['content_type'], source=first['source'], metadata=shared,
             created_at=min(row['created_at'] for row in chunks),
             updated_at=max(row['updated_at'] for row in chunks)))
-        connection.execute(embeddings.insert(), [
+        children.extend([
             {**{column.name: row[column.name] for column in embeddings.c if column.name != 'document_id'},
              'document_id': document_id} for row in chunks])
+    assign_document_names(parents)
+    if parents:
+        connection.execute(documents.insert(), parents)
+        connection.execute(embeddings.insert(), children)
     if connection.scalar(sa.select(sa.func.count()).select_from(embeddings)) != len(rows):
         raise ValueError('Embedding migration count mismatch')
     if connection.scalar(sa.select(sa.func.count()).select_from(documents)) != len(groups):
         raise ValueError('Document migration count mismatch')
+
+
+def assign_document_names(rows: list[dict]) -> None:
+    """Reserve unique filenames first, then allocate collision-safe names per application."""
+    from collections import Counter, defaultdict
+
+    applications = defaultdict(list)
+    for row in rows:
+        applications[row['application_id']].append(row)
+    for documents in applications.values():
+        counts = Counter(row['filename'].strip() for row in documents)
+        reserved = {name for name, count in counts.items() if name and count == 1}
+        for row in sorted(documents, key=lambda row: row['id']):
+            base = row['filename'].strip()
+            if base and counts[base] == 1:
+                row['name'] = base
+                continue
+            candidate = f"{base} ({row['id']})" if base else f"Document {row['id']}"
+            name, number = candidate, 2
+            while name in reserved:
+                name = f'{candidate} ({number})'
+                number += 1
+            row['name'] = name
+            reserved.add(name)
+
+
+def add_document_names(connection, metadata):
+    """Upgrade only the recognized unnamed parent schema, preserving IDs and timestamps."""
+    from app.database.unnamed_schema import build_metadata
+    from app.database.schema import validate_table
+
+    historical = build_metadata()
+    for table in historical.sorted_tables:
+        if sa.inspect(connection).has_table(table.name, schema='public'):
+            validate_table(connection, table)
+    old = historical.tables['public.documents']
+    rows = [dict(row) for row in connection.execute(sa.select(
+        old.c.id, old.c.application_id, old.c.filename)).mappings()]
+    assign_document_names(rows)
+    connection.exec_driver_sql('ALTER TABLE public.documents ADD COLUMN name text')
+    documents = metadata.tables['public.documents']
+    for row in rows:
+        connection.execute(documents.update().where(documents.c.id == row['id']).values(name=row['name']))
+    connection.exec_driver_sql('ALTER TABLE public.documents ALTER COLUMN name SET NOT NULL')
+    for constraint in documents.constraints:
+        if constraint.name in ('uq_documents_application_name', 'ck_documents_name_nonempty'):
+            connection.execute(AddConstraint(constraint, isolate_from_table=False))

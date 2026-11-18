@@ -45,7 +45,7 @@ def test_application_update_delete_and_missing_records(services):
 
 def test_application_embedding_changes_and_delete_restricted_with_documents(services):
     applications, documents, first, _ = services
-    created = documents.create(Document(filename='text', storage_key='shared.txt'))
+    created = documents.create(Document(filename='text', storage_key='shared.txt', name=str(uuid4())))
     assert applications.update(replace(first, name='allowed')).name == 'allowed'
     for changes in ({'embedding_size': 3}, {'embedding_model': 'other'}, {'provision_type': 'openai'}):
         with pytest.raises(ValueError, match='documents'):
@@ -72,8 +72,8 @@ def test_document_crud_is_application_scoped_and_preserves_storage(services, bac
                             applications=backend.applications())
     source = tmp_path / 'shared.txt'
     source.write_text('keep')
-    a = documents.create(Document(filename='a', storage_key=str(source)))
-    b = other.create(Document(filename='b'))
+    a = documents.create(Document(filename='a', storage_key=str(source), name=str(uuid4())))
+    b = other.create(Document(filename='b', name=str(uuid4())))
     assert [item.id for item in documents.list()] == [a.id]
     assert [item.id for item in other.list()] == [b.id]
     assert documents.list(offset=1) == []
@@ -98,7 +98,7 @@ def test_document_crud_is_application_scoped_and_preserves_storage(services, bac
 
 def test_repository_scope_cannot_reassign_documents(services, backend):
     _, documents, first, second = services
-    a = documents.create(Document(filename='text'))
+    a = documents.create(Document(filename='text', name=str(uuid4())))
     with pytest.raises(ValueError, match='scope'):
         backend.documents().update(a, application_id=second.id)
     # Even unscoped legacy repository updates keep immutable ownership.
@@ -121,7 +121,7 @@ def test_application_mutation_locks_out_concurrent_document_creation(services, b
 
     def check_while_writer_attempts(connection, application_id):
         # A second connection attempts creation while the real mutation holds its lock.
-        candidate = Document(filename='concurrent', application_id=first.id)
+        candidate = Document(filename='concurrent', application_id=first.id, name=str(uuid4()))
         with pytest.raises(sa.exc.OperationalError) as caught:
             writer.create(candidate)
         assert caught.value.orig.sqlstate == '55P03'  # lock_not_available
@@ -142,7 +142,7 @@ def test_application_mutation_locks_out_concurrent_document_creation(services, b
 
 def test_application_rejected_update_preserves_timestamp_and_data(services):
     applications, documents, first, _ = services
-    documents.create(Document(filename='text'))
+    documents.create(Document(filename='text', name=str(uuid4())))
     candidate = replace(first, embedding_size=3, data={'uncommitted': True})
     with pytest.raises(ValueError):
         applications.update(candidate)
@@ -154,7 +154,7 @@ def test_application_rejected_update_preserves_timestamp_and_data(services):
 @pytest.mark.parametrize('changes', [{'document_prefix': 'new'}, {'query_prefix': 'new'}, {'dimensions': 2}])
 def test_embedding_preprocessing_cannot_change_with_documents(services, changes):
     applications, documents, first, _ = services
-    documents.create(Document(filename='text'))
+    documents.create(Document(filename='text', name=str(uuid4())))
     with pytest.raises(ValueError, match='documents'):
         applications.update(replace(first, data={'provider_config': {'embedding': changes}}))
     # Inference settings and endpoint/credential locations do not change embedding preprocessing.

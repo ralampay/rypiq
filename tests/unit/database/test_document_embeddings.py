@@ -1,4 +1,5 @@
 """Contracts for parent documents and independently searchable chunks."""
+from uuid import uuid4
 from unittest.mock import Mock
 
 import pytest
@@ -30,7 +31,7 @@ def test_ingestion_writes_one_aggregate_and_returns_details(tmp_path):
                               {'model': 'model', 'chunks': [
                                   {'text': 'ab', 'embedding': [1., 0.], 'index': 0, 'start': 0, 'end': 2},
                                   {'text': 'cd', 'embedding': [0., 1.], 'index': 1, 'start': 2, 'end': 4},
-                              ]}, Application(name='test', embedding_model='model', embedding_size=2))
+                              ]}, Application(name='test', embedding_model='model', embedding_size=2), name='test document')
     repository.create_with_embeddings.assert_called_once()
     assert [item.content for item in result.embeddings] == ['ab', 'cd']
     assert all(item.document_id == result.document.id for item in result.embeddings)
@@ -46,7 +47,7 @@ def test_aggregate_rejects_foreign_chunk_before_connection():
 
     engine = Mock()
     repository = PostgreSQLDocumentRepository(engine, build_metadata().tables['public.documents'])
-    parent = Document(application_id=uuid4())
+    parent = Document(application_id=uuid4(), name=str(uuid4()))
     chunk = Embedding(document_id=uuid4(), content='text', embedding=[1., 0.], embedding_size=2)
     with pytest.raises(ValueError, match='another document'):
         repository.create_with_embeddings(parent, [chunk])

@@ -35,7 +35,7 @@ with LocalModelSession() as models:
     # Optional; omit inference warmup if the application has no inference model.
     models.warmup(settings_for(application, 'embedding'), settings_for(application, 'inference'))
     documents = ingest_file(path='samples/sample.txt', chunk_size=500, stride=400,
-                            application_id=application_id, model_session=models)
+                            application_id=application_id, model_session=models, name='Example document')
     matches = search_documents(query='What is this about?', application_id=application_id,
                                model_session=models)
     answer = chat(messages=[ChatMessage('user', 'Say hello.')], application_id=application_id,

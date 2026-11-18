@@ -19,6 +19,16 @@ def format_application_table(records: list[dict]) -> str:
     return '\n'.join(lines)
 
 
+def format_document_table(records: list[dict]) -> str:
+    names = [''.join(char if char.isprintable() else json.dumps(char)[1:-1]
+                     for char in record['name']) for record in records]
+    width = max([len('NAME'), *map(len, names)])
+    lines = [f'{"ID":<36}  {"NAME":<{width}}  EMBEDDINGS']
+    lines.extend(f'{record["id"]:<36}  {name:<{width}}  {record["embedding_count"]}'
+                 for record, name in zip(records, names, strict=True))
+    return '\n'.join(lines)
+
+
 def format_doctor_report(report: ConfigurationReport) -> str:
     def one_line(value: str) -> str:
         return ''.join(char if char.isprintable() else json.dumps(char)[1:-1] for char in value)
@@ -68,6 +78,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             result = embedding_preview(result)
         if args.command == 'applications:list' and args.output == 'text':
             serialized = format_application_table(result)
+        elif args.command == 'documents:list' and args.output == 'text':
+            serialized = format_document_table(result)
         else:
             serialized = json.dumps(result, indent=2, allow_nan=False)
         print(serialized)

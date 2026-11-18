@@ -1,3 +1,4 @@
+from uuid import uuid4
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -35,8 +36,8 @@ def test_embedding_command_borrows_provider_and_defers_io(tmp_path):
 
 def test_search_command_returns_domain_values_without_output(capsys):
     model = provider()
-    repository = Mock()
-    parent = Document(application_id=APPLICATION.id)
+    repository = Mock(name_exists=Mock(return_value=False))
+    parent = Document(application_id=APPLICATION.id, name=str(uuid4()))
     matches = [SearchResult(Embedding(document_id=parent.id, content='found', embedding=[1., 0., 0.]), parent, 0.)]
     repository.search_by_vector.return_value = matches
     command = search.SearchDocuments(application=APPLICATION, query='find', embedding_provider=model, repository=repository, limit=2)
@@ -53,9 +54,9 @@ def test_ingestion_command_uses_injected_dependencies(tmp_path):
     model = provider()
     storage = Mock()
     storage.save.return_value = SimpleNamespace(key='documents/source.txt', content_type='text/plain', checksum='checksum')
-    repository = Mock()
+    repository = Mock(name_exists=Mock(return_value=False))
     command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=repository,
-                                      embedding_provider=model, chunk_size=4, stride=4)
+                                      embedding_provider=model, chunk_size=4, stride=4, name='test document')
     storage.save.assert_not_called()
     result = command.execute()
     assert [item.content for item in result.embeddings] == ['ABCD', 'EFGH']
@@ -72,11 +73,11 @@ def test_ingestion_preserves_failure_and_attempts_all_compensation(tmp_path):
     storage = Mock()
     storage.save.return_value = SimpleNamespace(key='owned', content_type='text/plain', checksum='checksum')
     primary = RuntimeError('write failure')
-    repository = Mock()
+    repository = Mock(name_exists=Mock(return_value=False))
     repository.create_with_embeddings.side_effect = primary
     storage.delete.side_effect = OSError('cleanup failure')
     command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=repository,
-                                      embedding_provider=provider(), chunk_size=4, stride=4)
+                                      embedding_provider=provider(), chunk_size=4, stride=4, name='test document')
     with pytest.raises(RuntimeError, match='write failure') as error:
         command.execute()
     assert error.value is primary
@@ -92,8 +93,8 @@ def test_embedding_validation_finishes_before_storage(tmp_path):
     model.embed.side_effect = None
     model.embed.return_value = [[float('nan')]]
     storage = Mock()
-    command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=Mock(),
-                                      embedding_provider=model, chunk_size=4, stride=4)
+    command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=Mock(name_exists=Mock(return_value=False)),
+                                      embedding_provider=model, chunk_size=4, stride=4, name='test document')
     with pytest.raises(ValueError, match='invalid'):
         command.execute()
     storage.save.assert_not_called()
@@ -115,7 +116,7 @@ def test_search_rejects_nonfinite_provider_output():
     model = provider()
     model.embed.side_effect = None
     model.embed.return_value = [[float('inf')]]
-    repository = Mock()
+    repository = Mock(name_exists=Mock(return_value=False))
     with pytest.raises(ValueError, match='invalid'):
         search.SearchDocuments(application=APPLICATION, query='hello', embedding_provider=model, repository=repository).execute()
     repository.search_by_vector.assert_not_called()
@@ -127,10 +128,10 @@ def test_ingestion_preserves_primary_when_storage_compensation_fails(tmp_path):
     storage = Mock()
     storage.save.return_value = SimpleNamespace(key='owned', content_type='text/plain', checksum='checksum')
     storage.delete.side_effect = OSError('cleanup failure')
-    repository = Mock()
+    repository = Mock(name_exists=Mock(return_value=False))
     repository.create_with_embeddings.side_effect = ValueError('primary')
     with pytest.raises(ValueError, match='primary') as error:
         document.IngestDocument(application=APPLICATION, path=str(path), chunk_size=4, stride=4,
                                 embedding_provider=provider(), storage=storage,
-                                repository=repository).execute()
+                                repository=repository, name='test document').execute()
     assert 'stored source' in error.value.__notes__[0]
