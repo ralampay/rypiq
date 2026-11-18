@@ -60,6 +60,17 @@ Database handlers use `execute_database_command(command: str)`, which validates 
 
 No core command receives an argparse namespace, prints output, or terminates the process. Namespace-taking database functions remain compatibility adapters only.
 
+`rypiq --doctor` is a standalone root option. The entrypoint calls
+`app.diagnostics.check_configuration()` and formats its typed report as text.
+Diagnostics reuse database validation, storage path loading, and catalog loading.
+With valid database configuration, `app.database.diagnostics.check_database()`
+opens a dedicated PostgreSQL connection with read-only transactions and connection/query
+timeouts, checks pgvector and required table/column names, then releases the pool.
+It does not use the migration validator, which creates temporary tables.
+Required configuration or database failures exit with status 1; optional catalog
+issues remain nonblocking. Invalid
+command combinations use the normal argument-error exit status 2.
+
 ### Configured Python path
 
 Use `app.application` when environment configuration and automatic resource ownership are appropriate:

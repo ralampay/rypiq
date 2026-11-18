@@ -16,17 +16,10 @@ Start with the [configuration examples](#configuration-examples) below, then ini
 
 ## Configuration examples
 
-For `embeddings:create`, configure PostgreSQL and original-file storage. A model
-catalog is optional when you pass a direct model path or remote model ID. These
-examples use the `development` environment and the repository's `config/` directory.
+Run these examples from the project root. You need PostgreSQL with pgvector and
+an existing embedding model; RyPiq does not download models.
 
-| File | Purpose | Override |
-| --- | --- | --- |
-| [config/database.yml](config/database.yml) | PostgreSQL connection and default embedding dimensions | `RYPIQ_DATABASE_CONFIG` |
-| [config/storage.yml](config/storage.yml) | Local storage for original uploaded files | `RYPIQ_STORAGE_CONFIG` |
-| [config/models.yml](config/models.yml) | Optional reusable model aliases and provider defaults | `RYPIQ_MODELS_CONFIG` |
-
-### PostgreSQL: `config/database.yml`
+### Database: `config/database.yml`
 
 ```yaml
 development:
@@ -40,14 +33,11 @@ development:
   dimensions: 768
 ```
 
-Use an existing PostgreSQL role with the required database/extension permissions.
-The server must have pgvector installed. `password_env` names a shell environment
-variable; it does not contain the password itself. The target database must differ
-from the maintenance database. `dimensions` supplies the default for new
-applications; each application's embedding size must match its model's output.
-See [database setup](docs/DATABASE.md#setup-and-configuration) for prerequisites.
+Replace the host, user, and database for your setup. `dimensions` is the default
+embedding size for new applications; choose a size supported by your model. See [database prerequisites](docs/DATABASE.md#setup-and-configuration)
+for PostgreSQL permissions and pgvector setup.
 
-### Original files: `config/storage.yml`
+### File storage: `config/storage.yml`
 
 ```yaml
 development:
@@ -55,12 +45,9 @@ development:
   root: storage/objects/development
 ```
 
-This directory holds original PDF, text, and other uploaded files. Chunk text and
-embedding vectors live in PostgreSQL. Relative storage roots resolve from the
-**parent of the configuration directory**: with `/srv/rypiq/config/storage.yml`,
-the example resolves to `/srv/rypiq/storage/objects/development`. Use an absolute
-`root` if your configuration files live elsewhere. Directories are created when a file is saved; the process must have permission
-to create them and write files.
+Original files go here; text and vectors go into PostgreSQL. With the standard
+`config/` layout, this path is relative to the project root. Use an absolute path
+if your configuration lives elsewhere.
 
 ### Model aliases: `config/models.yml` (optional)
 
@@ -70,72 +57,59 @@ models:
     provider: local
     capabilities: [embedding]
     path: ../models/embeddinggemma-300m-Q4_0.gguf
-    options:
-      context_size: 2048
-      gpu_layers: 0
-      document_prefix: 'title: none | text: '
-      query_prefix: 'task: search result | query: '
 ```
 
-Place an existing compatible GGUF at the specified path; RyPiq does not download
-it. Model paths resolve relative to **the catalog file's directory**, unlike
-storage roots. Reference this entry as `@document-embedding`. Catalog options are
-copied into application configuration when an alias is saved; editing the catalog
-does not automatically update existing applications. For remote provider examples,
-see [llama.cpp server](docs/PROVIDERS.md#existing-llamacpp-server) and
-[OpenAI](docs/PROVIDERS.md#openai).
+Model paths are relative to this YAML file. Use `@document-embedding` instead of
+the model path in commands. Skip this file if you use a direct model path.
 
-### Select the environment and create an application
-
-Run from the project root after replacing the placeholder password:
+### Create an application and embed a document
 
 ```sh
 export DATABASE_ENV=development
-export STORAGE_ENV=development
 export RYPIQ_DATABASE_PASSWORD='replace-with-your-local-password'
-
-# Optional explicit paths, useful outside the checkout:
-export RYPIQ_DATABASE_CONFIG="$PWD/config/database.yml"
-export RYPIQ_STORAGE_CONFIG="$PWD/config/storage.yml"
-export RYPIQ_MODELS_CONFIG="$PWD/config/models.yml"
 
 rypiq db:create
 rypiq applications:create --name 'Document search' \
-  --embedding-model @document-embedding --embedding-size 768 \
+  --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768 \
   --chunk-size 500 --stride 400
-# Copy the returned application's UUID:
+
+# Replace APPLICATION_UUID with the ID returned above:
 rypiq embeddings:create /path/to/document.pdf --application-id APPLICATION_UUID
 ```
 
-`DATABASE_ENV` defaults to `development`. `STORAGE_ENV` defaults to `DATABASE_ENV`.
-Both must name sections present in their YAML files. The model catalog has no
-environment sections. Additional `test` or `production` sections can follow the
-same database/storage structure with their own database names and storage roots.
-The CLI does **not** automatically load `.env`; export variables in your shell or
-have your process manager supply them. [.env.example](.env.example) lists supported
-variables.
+Model and chunking settings are saved on the application. Chunk size and stride
+default to 500 and 400; change them with `applications:update`.
 
-Chunking and application-specific provider settings are saved in PostgreSQL,
-not a separate application configuration file. The chunk flags above save:
+`DATABASE_ENV` defaults to `development`; `STORAGE_ENV` follows it unless set
+separately. The CLI does not load `.env` automatically. To use files outside the
+standard layout, set `RYPIQ_DATABASE_CONFIG`, `RYPIQ_STORAGE_CONFIG`, or
+`RYPIQ_MODELS_CONFIG` to their absolute paths.
 
-```json
-{"chunking": {"chunk_size": 500, "stride": 400}}
-```
+See [.env.example](.env.example) for environment variables,
+[application options](#application-commands) for updates, and
+[model providers](docs/PROVIDERS.md) for remote models and advanced settings.
 
-Missing chunk values default independently to 500 and 400. Change them with
-`applications:update APPLICATION_UUID --chunk-size 800 --stride 600`. To set
-provider runtime options directly, supply a JSON object with `--data`, for example:
+### Check your configuration
 
 ```sh
-rypiq applications:create --name 'Local embedding' \
-  --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768 \
-  --chunk-size 500 --stride 400 \
-  --data '{"provider_config":{"embedding":{"context_size":2048,"gpu_layers":0}}}'
+rypiq --doctor
 ```
 
-`--data` accepts inline JSON, not a filename. On update it replaces the complete
-data object; preserve settings you want to keep. Explicit chunk flags override
-corresponding values in that object. See the [application options](#application-commands).
+Doctor checks database/storage YAML, selected environments, required credential
+variables, storage paths, and optional model catalog files. When database configuration
+is valid, it also connects to PostgreSQL and checks pgvector and required tables/columns. It prints `COMPLETE`,
+`REQUIRED`, `INVALID`, or `OPTIONAL` beside each item, with a suggested fix when
+needed. Credential values are never printed.
+
+Exit code `0` means required configuration and database checks passed; `1` means
+a required check failed. Optional catalog/model issues do not change
+the exit code. Use `--doctor` alone, without another command.
+
+Database inspection is read-only, with a 5-second connection timeout and a
+5-second timeout per query. Doctor never creates databases, runs migrations,
+loads models, or contacts remote model providers. It does not validate table
+constraints, column types, database write permissions, or saved application
+settings. Filesystem permission checks do not guarantee successful writes.
 
 ## Database
 
@@ -169,7 +143,7 @@ Library callers should use `with create_context() as context:` from `app.context
 
 ## CLI reference
 
-Commands return JSON except `applications:list`, which defaults to a text table and supports `--output json`. Failures exit nonzero with a diagnostic. Use `rypiq --help` to list commands and `rypiq COMMAND --help` for individual usage. `-h` is also supported. Run the examples from the project root and replace `APPLICATION_UUID` with an existing application's UUID. Flag spelling matters: chunking and local runtime flags use underscores, while application and chat flags use hyphens.
+Commands return JSON except `applications:list`, which defaults to a text table and supports `--output json`. The standalone `--doctor` option prints a text report. Failures exit nonzero with a diagnostic. Use `rypiq --help` to list commands and `rypiq COMMAND --help` for individual usage. `-h` is also supported. Run the examples from the project root and replace `APPLICATION_UUID` with an existing application's UUID. Flag spelling matters: chunking and local runtime flags use underscores, while application and chat flags use hyphens.
 
 - [Database](#database-commands)
 - [Applications](#application-commands)

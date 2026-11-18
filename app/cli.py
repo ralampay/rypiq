@@ -5,6 +5,7 @@ import json
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.cli_parser import build_parser
+from app.diagnostics import ConfigurationReport, check_configuration
 from app.cli_handlers import execute
 from app.cli_output import embedding_preview, validate_export_path, write_json_export
 
@@ -18,10 +19,38 @@ def format_application_table(records: list[dict]) -> str:
     return '\n'.join(lines)
 
 
+def format_doctor_report(report: ConfigurationReport) -> str:
+    def one_line(value: str) -> str:
+        return ''.join(char if char.isprintable() else json.dumps(char)[1:-1] for char in value)
+
+    lines = [f'Configuration check — {one_line(report.environment)}', '']
+    lines.extend(f'{check.status:<9} {one_line(check.name)} — {one_line(check.detail)}'
+                 for check in report.checks)
+    lines.append('')
+    if report.incomplete_count:
+        lines.append(f'Configuration incomplete: {report.incomplete_count} required item(s) need attention.')
+    else:
+        lines.append('Required configuration and database checks passed. Optional items may still need attention.')
+    lines.append('Saved applications were not checked.')
+    lines.append('Application model, provider, and chunking settings were not verified. No models were loaded.')
+    lines.append('Filesystem permission checks do not guarantee a later write will succeed.')
+    return '\n'.join(lines)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.doctor and args.command is not None:
+        parser.error('--doctor cannot be combined with a subcommand')
+    if not args.doctor and args.command is None:
+        parser.error('the following arguments are required: command')
     try:
+        if args.doctor:
+            report = check_configuration()
+            print(format_doctor_report(report))
+            if report.incomplete_count:
+                raise SystemExit(1)
+            return
         embedding_output = args.command in ('embeddings:create', 'embeddings:show')
         destination = None
         if embedding_output and args.output:

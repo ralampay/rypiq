@@ -23,7 +23,8 @@ def add_model_options(parser: argparse.ArgumentParser, *, batching: bool) -> Non
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog='rypiq', description='Rypiq RAG Toolkit')
-    commands = parser.add_subparsers(dest='command', required=True)
+    parser.add_argument('--doctor', action='store_true', help='Check configuration and PostgreSQL readiness without changing data')
+    commands = parser.add_subparsers(dest='command')
     for name, description in (
         ('create', 'Create the configured database, vector extension and fixed tables'),
         ('migrate', 'Create missing tables, upgrade legacy documents and validate the schema'),
