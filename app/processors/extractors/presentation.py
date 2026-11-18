@@ -2,6 +2,7 @@
 from typing import BinaryIO
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from .base import BaseExtractor
 from ._text import blocks, row
 
 
@@ -18,5 +19,11 @@ def _slide_shapes(shapes) -> str:
     return blocks(values)
 
 
+class PresentationExtractor(BaseExtractor):
+    def extract(self, stream: BinaryIO) -> str:
+        return blocks(_slide_shapes(slide.shapes) for slide in Presentation(stream).slides)
+
+
 def extract(stream: BinaryIO) -> str:
-    return blocks(_slide_shapes(slide.shapes) for slide in Presentation(stream).slides)
+    """Compatibility entrypoint for PresentationExtractor."""
+    return PresentationExtractor().extract(stream)

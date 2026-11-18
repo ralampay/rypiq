@@ -3,6 +3,7 @@ from typing import BinaryIO
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+from .base import BaseExtractor
 from ._text import blocks, row
 
 
@@ -26,5 +27,11 @@ def _word_blocks(container) -> str:
     return blocks(values)
 
 
+class WordExtractor(BaseExtractor):
+    def extract(self, stream: BinaryIO) -> str:
+        return _word_blocks(Document(stream))
+
+
 def extract(stream: BinaryIO) -> str:
-    return _word_blocks(Document(stream))
+    """Compatibility entrypoint for WordExtractor."""
+    return WordExtractor().extract(stream)

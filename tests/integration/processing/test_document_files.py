@@ -210,3 +210,22 @@ def test_cli_corrupt_document_is_safe(tmp_path, capsys):
     assert not output.out
     assert 'Cannot extract .docx' in output.err
     assert 'private contents' not in output.err
+
+
+def test_readers_borrow_streams_and_keep_function_entrypoints(document_file):
+    from app.processors.extraction import EXTRACTORS
+    from app.processors.extractors import pdf, word, spreadsheet, presentation
+
+    path, expected = document_file
+    suffix = path.suffix.lower()
+    compatibility = {
+        '.pdf': pdf.extract, '.docx': word.extract,
+        '.xlsx': spreadsheet.extract_excel, '.xlsm': spreadsheet.extract_excel,
+        '.xls': spreadsheet.extract_xls, '.pptx': presentation.extract,
+    }
+    with path.open('rb') as stream:
+        assert EXTRACTORS[suffix].extract(stream) == expected
+        assert not stream.closed
+        stream.seek(0)
+        assert compatibility[suffix](stream) == expected
+        assert not stream.closed

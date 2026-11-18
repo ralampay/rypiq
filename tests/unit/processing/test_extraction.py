@@ -1,11 +1,12 @@
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 import pytest
 
 from app.processors import extraction
-from app.processors.extractors import spreadsheet
+from app.processors.extractors import spreadsheet, excel, xls
 from app.operations.processing.file import process_text_file
 
 
@@ -35,13 +36,14 @@ def test_source_stream_closed(monkeypatch, suffix, fails):
     stream = BytesIO(b'contents')
     monkeypatch.setattr(Path, 'open', Mock(return_value=stream))
     parser = Mock(side_effect=ValueError('private parser details')) if fails else Mock(return_value='text')
-    monkeypatch.setitem(extraction.EXTRACTORS, suffix, parser)
+    monkeypatch.setitem(extraction.EXTRACTORS, suffix, SimpleNamespace(extract=parser))
     if fails:
         with pytest.raises(ValueError, match='Cannot extract') as error:
             extraction.extract_file(Path('sample' + suffix))
         assert 'private parser details' not in str(error.value)
     else:
         assert extraction.extract_file(Path('sample' + suffix)) == 'text'
+    parser.assert_called_once_with(stream)
     assert stream.closed
 
 
@@ -52,7 +54,7 @@ def test_modern_workbook_closed(monkeypatch, fails):
     sheet.iter_rows.side_effect = ValueError('broken') if fails else None
     sheet.iter_rows.return_value = [('text',)]
     book.worksheets = [sheet]
-    monkeypatch.setattr(spreadsheet, 'load_workbook', Mock(return_value=book))
+    monkeypatch.setattr(excel, 'load_workbook', Mock(return_value=book))
     if fails:
         with pytest.raises(ValueError):
             spreadsheet.extract_excel(BytesIO())
@@ -66,7 +68,7 @@ def test_legacy_workbook_released(monkeypatch, fails):
     book = Mock()
     book.sheets.side_effect = ValueError('broken') if fails else None
     book.sheets.return_value = []
-    monkeypatch.setattr(spreadsheet.xlrd, 'open_workbook', Mock(return_value=book))
+    monkeypatch.setattr(xls.xlrd, 'open_workbook', Mock(return_value=book))
     if fails:
         with pytest.raises(ValueError):
             spreadsheet.extract_xls(BytesIO())
@@ -90,3 +92,18 @@ def test_extraction_failures_have_public_types(tmp_path, filename, content, expe
     assert type(caught.value).__name__ == expected
     assert isinstance(caught.value, ValueError)
     assert isinstance(caught.value, RyPiqError)
+
+
+@pytest.mark.parametrize('content', [b'', b'caf\xc3\xa9\r\nnext\rlast\n', b'\xef\xbb\xbftext'])
+def test_text_extraction_preserves_read_text_semantics(tmp_path, content):
+    path = tmp_path / 'sample.TXT'
+    path.write_bytes(content)
+    assert extraction.extract_file(path) == path.read_text(encoding='utf-8')
+
+
+def test_invalid_text_keeps_specific_diagnostic(tmp_path):
+    from app.exceptions import DocumentExtractionError
+    path = tmp_path / 'sample.txt'
+    path.write_bytes(b'\xff')
+    with pytest.raises(DocumentExtractionError, match='text must be valid UTF-8'):
+        extraction.extract_file(path)

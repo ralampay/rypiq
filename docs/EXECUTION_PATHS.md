@@ -112,11 +112,40 @@ The facade returns Python values: embedding dictionaries, `DocumentDetails`, or 
 
 File processing dispatches by extension to text extractors for TXT, PDF, DOCX, XLSX, XLS, XLSM, and PPTX before applying shared character chunking. The existing `text-file` names and result contracts remain supported for all formats.
 
-`app.processors.extraction.extract_file()` owns file opening, extension dispatch,
-and sanitized parser errors. Binary format readers live in
-`app.processors.extractors`: `pdf`, `word`, `spreadsheet`, and `presentation`.
-Readers borrow the input stream and release any workbook resources they create.
-Their shared text/row normalization stays inside that package in `_text.py`.
+`app.processors.extraction.extract_file()` remains the compatibility entrypoint.
+It delegates to `FileTextReader`, which owns file opening/closing and sanitizes parser
+errors while preserving filesystem failures. `ExtractorFactory.get(suffix)` selects
+an extractor using an explicit, case-insensitive extension mapping. `EXTRACTORS` and
+`SUPPORTED_EXTENSIONS` remain available through the compatibility module.
+
+Each processing class has its own defining module:
+
+| Module under `app/processors/` | Class / responsibility |
+| --- | --- |
+| `file_reader.py` | `FileTextReader`: read using an optionally injected factory |
+| `extractors/factory.py` | `ExtractorFactory`: select a format reader |
+| `extractors/base.py` | `BaseExtractor`: `extract(stream: BinaryIO) -> str` contract |
+| `extractors/text.py`, `pdf.py`, `word.py`, `presentation.py` | TXT, PDF, DOCX, and PPTX readers |
+| `extractors/excel.py`, `xls.py` | `ExcelExtractor` for XLSX/XLSM and `XlsExtractor` for XLS |
+| `chunkers/base.py` | `BaseChunker`: `chunk(text, *, chunk_size, stride) -> list[dict]` contract |
+| `chunkers/character.py` | `CharacterChunker`: overlapping character windows and offsets |
+| `text_file.py` | `TextFileProcessor`: coordinate reading, chunking, and result assembly |
+
+`TextFileProcessor(chunk_size, stride, *, reader=None, chunker=None)` accepts injected
+components and defaults to `FileTextReader` and `CharacterChunker`. Its existing
+constructor validation, result dictionaries, and CLI output are preserved. The
+character chunker independently validates options, including for empty input.
+
+Extractors borrow seekable binary streams and release any workbook resources they
+create; they never close the input stream. TXT retains UTF-8 decoding and universal
+newline handling. Existing format functions and spreadsheet class imports remain
+available through compatibility wrappers. Shared worksheet rendering lives in
+`extractors/_spreadsheet.py`; text/row normalization stays in `extractors/_text.py`.
+
+To support another format, define a `BaseExtractor` subclass in its own file, register
+an instance in the factory's `EXTRACTORS`, and test content, failures, and stream
+ownership. Keep constructors free of I/O. New chunking implementations belong in
+individual modules under `chunkers/` and implement the shared chunk dictionary contract.
 
 For embedding alone, file/chunk validation occurs before constructing a model. Both configured embedding and the injected command share the same preparation/batching functions. There is one implementation of the embedding algorithm, even though resource construction happens at different boundaries.
 

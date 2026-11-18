@@ -1,47 +1,27 @@
+"""Coordinate file reading and chunking while preserving the processing result."""
 from pathlib import Path
 
-from app.exceptions import ValidationError
 from app.processors.base import BaseProcessor
-from app.processors.extraction import extract_file
+from app.processors.chunkers.base import BaseChunker
+from app.processors.chunkers.character import CharacterChunker
+from app.processors.chunkers._validation import validate_chunking
+from app.processors.file_reader import FileTextReader
+
 
 class TextFileProcessor(BaseProcessor):
-    def __init__(self, chunk_size: int, stride: int):
-        if (
-            not isinstance(chunk_size, int)
-            or isinstance(chunk_size, bool)
-            or not isinstance(stride, int)
-            or isinstance(stride, bool)
-            or chunk_size <= 0
-            or stride <= 0
-            or stride > chunk_size
-        ):
-            raise ValidationError(
-                "Require positive integer parameters "
-                "with stride <= chunk_size"
-            )
-
+    def __init__(self, chunk_size: int, stride: int, *,
+                 reader: FileTextReader | None = None,
+                 chunker: BaseChunker | None = None) -> None:
+        validate_chunking(chunk_size, stride)
         self.chunk_size = chunk_size
         self.stride = stride
+        self.reader = reader if reader is not None else FileTextReader()
+        self.chunker = chunker if chunker is not None else CharacterChunker()
 
     def process(self, content: str) -> dict:
         path = Path(content)
-
-        text = extract_file(path)
-
-        chunks = []
-
-        for start in range(0, len(text), self.stride):
-            end = min(start + self.chunk_size, len(text))
-
-            chunks.append({
-                "index": len(chunks),
-                "start": start,
-                "end": end,
-                "text": text[start:end],
-            })
-
-            if end == len(text):
-                break
+        text = self.reader.read(path)
+        chunks = self.chunker.chunk(text, chunk_size=self.chunk_size, stride=self.stride)
 
         return {
             "medium": "text-file",
