@@ -9,12 +9,24 @@ from app.cli_parser import build_parser
 from app.cli_handlers import execute
 
 
+def format_application_table(records: list[dict]) -> str:
+    lines = [f'{"ID":<36}  NAME']
+    for record in records:
+        name = ''.join(character if character.isprintable() else json.dumps(character)[1:-1]
+                       for character in record['name'])
+        lines.append(f'{record["id"]:<36}  {name}')
+    return '\n'.join(lines)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         result = execute(args)
-        serialized = json.dumps(result, indent=2, allow_nan=False)
+        if args.command == 'ls-applications' and args.output == 'text':
+            serialized = format_application_table(result)
+        else:
+            serialized = json.dumps(result, indent=2, allow_nan=False)
         if args.command == 'embed' and args.output:
             Path(args.output).write_text(serialized + '\n', encoding='utf-8')
         else:

@@ -72,6 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
     listing = commands.add_parser('application:list', help='List applications without API keys')
     listing.add_argument('--limit', type=int, default=100)
     listing.add_argument('--offset', type=int, default=0)
+    summaries = commands.add_parser('ls-applications', help='List every application ID and name')
+    summaries.add_argument('--output', choices=['text', 'json'], default='text',
+                           help='Output format (default: text)')
     show = commands.add_parser('application:show', help='Show application without API key')
     show.add_argument('application_id', type=UUID)
     chat = commands.add_parser('chat', help='Run non-streaming text inference')

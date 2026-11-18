@@ -84,10 +84,31 @@ An application selects a provider and embedding/inference models. Create and upd
 | --- | --- | --- |
 | `rypiq application:create` | `--name NAME --embedding-model MODEL` | Create an application and generate its API key. |
 | `rypiq application:list` | None | List applications with pagination. |
+| `rypiq ls-applications` | None | List every application's ID and name; `--output text` (default) or `--output json`. |
 | `rypiq application:show APPLICATION_UUID` | Application UUID positional argument | Show one application's details. |
 | `rypiq application:update APPLICATION_UUID` | Application UUID positional argument | Update supplied fields; omitted fields remain unchanged. |
 
 Creation returns the generated API key. List, show, and update omit it. There is no application deletion CLI command.
+
+`ls-applications` lists all applications in UUID order, without pagination arguments.
+The default text table has `ID` and `NAME` columns; control characters in names are
+escaped so each application occupies one row. An empty database prints only the
+headers. JSON output preserves names and contains only `id` and `name`, returning
+`[]` when empty. Listing does not guarantee a snapshot during concurrent changes.
+
+```sh
+rypiq ls-applications
+rypiq ls-applications --output text
+rypiq ls-applications --output json
+```
+
+Example JSON output:
+
+```json
+[
+  {"id": "00000000-0000-0000-0000-000000000001", "name": "My application"}
+]
+```
 
 | Create/update option | Creation default or requirement | Update behavior |
 | --- | --- | --- |

@@ -32,6 +32,15 @@ flowchart TD
 4. `app.application` constructs configured dependencies through factories, invokes shared operations, and releases the resources it owns.
 5. `app.cli` writes JSON to stdout (or `embed --output`) and converts failures into sanitized, nonzero exits.
 
+`ls-applications` defaults to a text table and accepts `--output text|json` as a
+format selector. Its handler projects only IDs and names from
+`application.enumerate_all_applications()`, which owns one database context and
+calls `operations.application.list_all_applications()`. The operation reads
+100-record pages through the existing repository until exhausted. Presentation
+happens only after the complete listing succeeds; failures release the database
+without printing partial results. Existing `application:list` pagination and JSON
+details remain unchanged.
+
 Database handlers use `execute_database_command(command: str)`, which validates the name before creating resources. The injected `DatabaseCommands` facade delegates to the PostgreSQL backend. Supported names remain `db:create`, `db:migrate`, `db:drop`, and `db:reset`.
 
 No core command receives an argparse namespace, prints output, or terminates the process. Namespace-taking database functions remain compatibility adapters only.

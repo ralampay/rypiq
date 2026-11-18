@@ -7,6 +7,8 @@ import sys
 import pytest
 import yaml
 
+from app.models.application import Application
+
 
 @pytest.fixture
 def invoke(backend, tmp_path):
@@ -76,3 +78,27 @@ def test_application_management_and_required_scope(invoke):
     invalid = invoke('application:create', '--name', 'bad', '--embedding-model', 'model', '--data', '[]')
     assert invalid.returncode != 0
     assert len(json.loads(invoke('application:list').stdout)) == 1
+
+
+def test_ls_applications_installed_cli_lists_all_records(invoke, backend):
+    backend.create_database()
+    empty = invoke('ls-applications', '--output', 'json')
+    assert empty.returncode == 0, empty.stderr
+    assert json.loads(empty.stdout) == []
+    empty_text = invoke('ls-applications')
+    assert empty_text.returncode == 0, empty_text.stderr
+    assert empty_text.stdout == f'{"ID":<36}  NAME\n'
+
+    repository = backend.applications()
+    applications = [repository.create(Application(name=f'Application {index}',
+                    embedding_model='unused')) for index in range(101)]
+    applications.sort(key=lambda value: value.id)
+    result = invoke('ls-applications', '--output', 'json')
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == [
+        {'id': str(value.id), 'name': value.name} for value in applications]
+    for arguments in ((), ('--output', 'text')):
+        result = invoke('ls-applications', *arguments)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [f'{"ID":<36}  NAME'] + [
+            f'{value.id}  {value.name}' for value in applications]

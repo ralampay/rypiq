@@ -16,7 +16,7 @@ from app.providers.session import LocalModelSession
 from app.providers.discovery import merge_models
 from app.operations.chat import Chat
 from app.providers.normalization import validate_chat
-from app.operations.application import CreateApplication, get_application, list_applications
+from app.operations.application import CreateApplication, get_application, list_applications, list_all_applications
 
 from app.embeddings.base import EmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
@@ -167,6 +167,11 @@ def show_application(*, application_id: UUID) -> Application:
 def enumerate_applications(*, limit: int = 100, offset: int = 0) -> list[Application]:
     with get_database() as database:
         return list_applications(repository=database.applications(), limit=limit, offset=offset)
+
+
+def enumerate_all_applications() -> list[Application]:
+    with get_database() as database:
+        return list_all_applications(repository=database.applications())
 
 
 def update_application(*, application: Application) -> Application:

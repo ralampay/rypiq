@@ -82,6 +82,11 @@ def application_list(args: Namespace) -> list[dict]:
             application.enumerate_applications(limit=args.limit, offset=args.offset)]
 
 
+def ls_applications(args: Namespace) -> list[dict]:
+    return [dict(id=str(value.id), name=value.name)
+            for value in application.enumerate_all_applications()]
+
+
 def application_show(args: Namespace) -> dict:
     return application_json(application.show_application(application_id=args.application_id))
 
@@ -111,6 +116,7 @@ def application_update(args: Namespace) -> dict:
 
 
 HANDLERS = {
+    'ls-applications': ls_applications,
     'chat': chat,
     'models:list': models_list,
     'application:update': application_update,
