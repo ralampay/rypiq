@@ -29,6 +29,8 @@ coverage.xml
 .env
 .env.*
 !.env.example
+/config/database.yml
+/config/storage.yml
 
 # Logs and editor/OS files
 *.log

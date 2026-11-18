@@ -1,0 +1,20 @@
+default: &default
+  adapter: postgresql
+  host: localhost
+  port: 5432
+  user: rypiq
+  password_env: RYPIQ_DATABASE_PASSWORD
+  maintenance_database: postgres
+  dimensions: 768
+
+development:
+  <<: *default
+  database: rypiq_development
+
+test:
+  <<: *default
+  database: rypiq_test
+
+production:
+  <<: *default
+  database: rypiq_production

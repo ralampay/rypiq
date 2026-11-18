@@ -21,6 +21,12 @@ an existing embedding model; RyPiq does not download models.
 
 ### Database: `config/database.yml`
 
+Copy the [distribution template](config/database.yml.dist) to your local configuration, which Git ignores:
+
+```sh
+cp config/database.yml.dist config/database.yml
+```
+
 ```yaml
 development:
   adapter: postgresql
@@ -38,6 +44,12 @@ embedding size for new applications; choose a size supported by your model. See 
 for PostgreSQL permissions and pgvector setup.
 
 ### File storage: `config/storage.yml`
+
+Copy the [distribution template](config/storage.yml.dist) to your local configuration, which Git ignores:
+
+```sh
+cp config/storage.yml.dist config/storage.yml
+```
 
 ```yaml
 development:
