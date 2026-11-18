@@ -4,6 +4,8 @@ RyPiq uses PostgreSQL with pgvector for application configuration, document pers
 
 ## Setup and configuration
 
+See the [copyable configuration examples](../README.md#configuration-examples) for database, storage, model catalog, and shell environment setup.
+
 Install PostgreSQL and the pgvector server extension on the database host. The Python `pgvector` package does not install that server extension. Run the commands below from the project root after installing RyPiq.
 
 Edit [config/database.yml](../config/database.yml) for your host, port, database names, and PostgreSQL user. Export `RYPIQ_DATABASE_PASSWORD` in your shell. The default configuration uses PostgreSQL's `postgres` database for maintenance connections. The maintenance and target databases must differ.

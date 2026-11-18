@@ -88,6 +88,8 @@ Configuration precedence is: explicit allowed CLI override, saved application op
 
 ## Application provider configuration
 
+For a complete local setup including PostgreSQL, object storage, and a model catalog, see the [configuration examples](../README.md#configuration-examples).
+
 Store options under `Application.data.provider_config`, with `embedding` and `inference` sections. `applications:create --data` and `applications:update --data` accept the entire JSON data object; updates replace that object rather than patching nested keys. Keep unrelated metadata when replacing it.
 
 Application chunking is stored separately under `data.chunking` (`chunk_size` and `stride`), defaulting to 500 and 400. Use `applications:create` or `applications:update` with `--chunk-size` and `--stride` to set these values; explicit flags override corresponding values in `--data`. Chunking changes are allowed while documents exist and only affect future uploads.

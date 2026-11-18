@@ -12,7 +12,130 @@ python -m venv env
 python -m pip install -e '.[dev]'
 ```
 
-Configure PostgreSQL and initialize the database using the [database setup guide](docs/DATABASE.md#setup-and-configuration).
+Start with the [configuration examples](#configuration-examples) below, then initialize PostgreSQL using the [database setup guide](docs/DATABASE.md#setup-and-configuration).
+
+## Configuration examples
+
+For `embeddings:create`, configure PostgreSQL and original-file storage. A model
+catalog is optional when you pass a direct model path or remote model ID. These
+examples use the `development` environment and the repository's `config/` directory.
+
+| File | Purpose | Override |
+| --- | --- | --- |
+| [config/database.yml](config/database.yml) | PostgreSQL connection and default embedding dimensions | `RYPIQ_DATABASE_CONFIG` |
+| [config/storage.yml](config/storage.yml) | Local storage for original uploaded files | `RYPIQ_STORAGE_CONFIG` |
+| [config/models.yml](config/models.yml) | Optional reusable model aliases and provider defaults | `RYPIQ_MODELS_CONFIG` |
+
+### PostgreSQL: `config/database.yml`
+
+```yaml
+development:
+  adapter: postgresql
+  host: localhost
+  port: 5432
+  user: rypiq
+  password_env: RYPIQ_DATABASE_PASSWORD
+  database: rypiq_development
+  maintenance_database: postgres
+  dimensions: 768
+```
+
+Use an existing PostgreSQL role with the required database/extension permissions.
+The server must have pgvector installed. `password_env` names a shell environment
+variable; it does not contain the password itself. The target database must differ
+from the maintenance database. `dimensions` supplies the default for new
+applications; each application's embedding size must match its model's output.
+See [database setup](docs/DATABASE.md#setup-and-configuration) for prerequisites.
+
+### Original files: `config/storage.yml`
+
+```yaml
+development:
+  adapter: local
+  root: storage/objects/development
+```
+
+This directory holds original PDF, text, and other uploaded files. Chunk text and
+embedding vectors live in PostgreSQL. Relative storage roots resolve from the
+**parent of the configuration directory**: with `/srv/rypiq/config/storage.yml`,
+the example resolves to `/srv/rypiq/storage/objects/development`. Use an absolute
+`root` if your configuration files live elsewhere. Directories are created when a file is saved; the process must have permission
+to create them and write files.
+
+### Model aliases: `config/models.yml` (optional)
+
+```yaml
+models:
+  document-embedding:
+    provider: local
+    capabilities: [embedding]
+    path: ../models/embeddinggemma-300m-Q4_0.gguf
+    options:
+      context_size: 2048
+      gpu_layers: 0
+      document_prefix: 'title: none | text: '
+      query_prefix: 'task: search result | query: '
+```
+
+Place an existing compatible GGUF at the specified path; RyPiq does not download
+it. Model paths resolve relative to **the catalog file's directory**, unlike
+storage roots. Reference this entry as `@document-embedding`. Catalog options are
+copied into application configuration when an alias is saved; editing the catalog
+does not automatically update existing applications. For remote provider examples,
+see [llama.cpp server](docs/PROVIDERS.md#existing-llamacpp-server) and
+[OpenAI](docs/PROVIDERS.md#openai).
+
+### Select the environment and create an application
+
+Run from the project root after replacing the placeholder password:
+
+```sh
+export DATABASE_ENV=development
+export STORAGE_ENV=development
+export RYPIQ_DATABASE_PASSWORD='replace-with-your-local-password'
+
+# Optional explicit paths, useful outside the checkout:
+export RYPIQ_DATABASE_CONFIG="$PWD/config/database.yml"
+export RYPIQ_STORAGE_CONFIG="$PWD/config/storage.yml"
+export RYPIQ_MODELS_CONFIG="$PWD/config/models.yml"
+
+rypiq db:create
+rypiq applications:create --name 'Document search' \
+  --embedding-model @document-embedding --embedding-size 768 \
+  --chunk-size 500 --stride 400
+# Copy the returned application's UUID:
+rypiq embeddings:create /path/to/document.pdf --application-id APPLICATION_UUID
+```
+
+`DATABASE_ENV` defaults to `development`. `STORAGE_ENV` defaults to `DATABASE_ENV`.
+Both must name sections present in their YAML files. The model catalog has no
+environment sections. Additional `test` or `production` sections can follow the
+same database/storage structure with their own database names and storage roots.
+The CLI does **not** automatically load `.env`; export variables in your shell or
+have your process manager supply them. [.env.example](.env.example) lists supported
+variables.
+
+Chunking and application-specific provider settings are saved in PostgreSQL,
+not a separate application configuration file. The chunk flags above save:
+
+```json
+{"chunking": {"chunk_size": 500, "stride": 400}}
+```
+
+Missing chunk values default independently to 500 and 400. Change them with
+`applications:update APPLICATION_UUID --chunk-size 800 --stride 600`. To set
+provider runtime options directly, supply a JSON object with `--data`, for example:
+
+```sh
+rypiq applications:create --name 'Local embedding' \
+  --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768 \
+  --chunk-size 500 --stride 400 \
+  --data '{"provider_config":{"embedding":{"context_size":2048,"gpu_layers":0}}}'
+```
+
+`--data` accepts inline JSON, not a filename. On update it replaces the complete
+data object; preserve settings you want to keep. Explicit chunk flags override
+corresponding values in that object. See the [application options](#application-commands).
 
 ## Database
 
