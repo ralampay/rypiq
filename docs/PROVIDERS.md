@@ -88,7 +88,7 @@ Configuration precedence is: explicit allowed CLI override, saved application op
 
 ## Application provider configuration
 
-Store options under `Application.data.provider_config`, with `embedding` and `inference` sections. `application:create --data` and `application:update --data` accept the entire JSON data object; updates replace that object rather than patching nested keys. Keep unrelated metadata when replacing it.
+Store options under `Application.data.provider_config`, with `embedding` and `inference` sections. `applications:create --data` and `applications:update --data` accept the entire JSON data object; updates replace that object rather than patching nested keys. Keep unrelated metadata when replacing it.
 
 Common options are `base_url`, `api_key_env`, and `timeout`. Local runtime options are `context_size` (default 2048) and `gpu_layers` (default 0; -1 is accepted for all layers). Local inference also accepts `chat_format`; omit it to use llama-cpp-python's model template selection. Local runtime options have no effect on remote server execution; configure those servers separately.
 
@@ -101,7 +101,7 @@ Application updates cannot change embedding prefixes, requested dimensions, mode
 ### Local
 
 ```sh
-rypiq application:create --name 'Local example' \
+rypiq applications:create --name 'Local example' \
   --embedding-model @embeddinggemma --embedding-size 768 \
   --inference-model @local-chat
 ```
@@ -111,7 +111,7 @@ Local models must be existing GGUF files. `--model` on application-scoped ingest
 ### Existing llama.cpp server
 
 ```sh
-rypiq application:create --name 'Server example' --provision-type llama-server \
+rypiq applications:create --name 'Server example' --provision-type llama-server \
   --embedding-model embedding-alias --embedding-size 768 --inference-model chat-alias \
   --data '{"provider_config":{"embedding":{"base_url":"http://localhost:8081/v1"},"inference":{"base_url":"http://localhost:8082/v1"}}}'
 ```
@@ -124,7 +124,7 @@ Authentication is optional. If required, set `api_key_env` in the appropriate se
 
 ```sh
 export OPENAI_API_KEY='your-provider-key'
-rypiq application:create --name 'OpenAI example' --provision-type openai \
+rypiq applications:create --name 'OpenAI example' --provision-type openai \
   --embedding-model @openai-embedding --embedding-size 768 \
   --inference-model YOUR_CHAT_COMPLETIONS_MODEL_ID
 ```
@@ -142,8 +142,8 @@ rypiq chat 'Hello' --model @local-chat
 rypiq chat 'Hello' --model /absolute/path/to/chat.gguf --temperature 0.5
 rypiq models:list
 rypiq models:list --application-id APPLICATION_UUID --discover
-rypiq application:update APPLICATION_UUID --inference-model @local-chat
-rypiq application:update APPLICATION_UUID --clear-inference-model
+rypiq applications:update APPLICATION_UUID --inference-model @local-chat
+rypiq applications:update APPLICATION_UUID --clear-inference-model
 ```
 
 Chat requires exactly one application ID or standalone local model. `--max-tokens` defaults to 512. A missing application inference model fails before constructing a provider. Outputs are JSON; list/show/update output continues to omit the application's API key.

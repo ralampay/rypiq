@@ -57,7 +57,7 @@ def test_help_lists_only_supported_database_commands(invoke):
 
 def test_application_management_and_required_scope(invoke):
     assert invoke('db:create').returncode == 0
-    result = invoke('application:create', '--name', 'example', '--embedding-model', 'model',
+    result = invoke('applications:create', '--name', 'example', '--embedding-model', 'model',
                     '--provision-type', 'openai', '--embedding-size', '4', '--data',
                     '{"nested":[1],"provider_config":{"embedding":{"api_key_env":"RYPIQ_TEST_MISSING_API_KEY"}}}')
     assert result.returncode == 0, result.stderr
@@ -65,7 +65,7 @@ def test_application_management_and_required_scope(invoke):
     assert created['embedding_size'] == 4
     assert created['data']['nested'] == [1]
     assert created['api_key']
-    for result in (invoke('application:list'), invoke('application:show', created['id'])):
+    for result in (invoke('applications:list', '--output', 'json'), invoke('applications:show', created['id'])):
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         records = payload if isinstance(payload, list) else [payload]
@@ -75,17 +75,17 @@ def test_application_management_and_required_scope(invoke):
     unsupported = invoke('search', 'query', '--application-id', created['id'])
     assert unsupported.returncode != 0
     assert 'credential' in unsupported.stderr
-    invalid = invoke('application:create', '--name', 'bad', '--embedding-model', 'model', '--data', '[]')
+    invalid = invoke('applications:create', '--name', 'bad', '--embedding-model', 'model', '--data', '[]')
     assert invalid.returncode != 0
-    assert len(json.loads(invoke('application:list').stdout)) == 1
+    assert len(json.loads(invoke('applications:list', '--output', 'json').stdout)) == 1
 
 
-def test_ls_applications_installed_cli_lists_all_records(invoke, backend):
+def test_applications_list_installed_cli_lists_all_records(invoke, backend):
     backend.create_database()
-    empty = invoke('ls-applications', '--output', 'json')
+    empty = invoke('applications:list', '--output', 'json')
     assert empty.returncode == 0, empty.stderr
     assert json.loads(empty.stdout) == []
-    empty_text = invoke('ls-applications')
+    empty_text = invoke('applications:list')
     assert empty_text.returncode == 0, empty_text.stderr
     assert empty_text.stdout == f'{"ID":<36}  NAME\n'
 
@@ -93,12 +93,47 @@ def test_ls_applications_installed_cli_lists_all_records(invoke, backend):
     applications = [repository.create(Application(name=f'Application {index}',
                     embedding_model='unused')) for index in range(101)]
     applications.sort(key=lambda value: value.id)
-    result = invoke('ls-applications', '--output', 'json')
+    result = invoke('applications:list', '--output', 'json')
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [
         {'id': str(value.id), 'name': value.name} for value in applications]
     for arguments in ((), ('--output', 'text')):
-        result = invoke('ls-applications', *arguments)
+        result = invoke('applications:list', *arguments)
         assert result.returncode == 0, result.stderr
         assert result.stdout.splitlines() == [f'{"ID":<36}  NAME'] + [
             f'{value.id}  {value.name}' for value in applications]
+
+
+def test_application_rename_and_delete_preserve_related_data(invoke, backend):
+    from app.models.document import Document
+
+    backend.create_database()
+    repository = backend.applications()
+    value = repository.create(Application(name='Original', embedding_model='model', embedding_size=3))
+    document = backend.documents().create(Document(
+        content='Keep this document', embedding=[1., 0., 0.], application_id=value.id,
+        embedding_model=value.embedding_model, embedding_size=3,
+        provision_type=value.provision_type))
+
+    renamed = invoke('applications:update', str(value.id), '--name', 'Renamed')
+    assert renamed.returncode == 0, renamed.stderr
+    assert json.loads(renamed.stdout)['name'] == 'Renamed'
+    assert 'api_key' not in json.loads(renamed.stdout)
+    loaded = repository.get(value.id)
+    assert loaded.name == 'Renamed'
+    assert loaded.api_key == value.api_key
+    assert loaded.embedding_model == value.embedding_model
+
+    rejected = invoke('applications:delete', str(value.id))
+    assert rejected.returncode != 0
+    assert 'Cannot delete application while it has documents' in rejected.stderr
+    assert rejected.stdout == ''
+    assert repository.get(value.id) is not None
+    assert backend.documents().get(document.id) is not None
+
+    empty = repository.create(Application(name='Unused', embedding_model='model', embedding_size=3))
+    for expected in (True, False):
+        deleted = invoke('applications:delete', str(empty.id))
+        assert deleted.returncode == 0, deleted.stderr
+        assert json.loads(deleted.stdout) == {'deleted': expected}
+        assert repository.get(empty.id) is None

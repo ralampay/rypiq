@@ -78,13 +78,12 @@ def application_create(args: Namespace) -> dict:
 
 
 def application_list(args: Namespace) -> list[dict]:
-    return [application_json(value) for value in
-            application.enumerate_applications(limit=args.limit, offset=args.offset)]
-
-
-def ls_applications(args: Namespace) -> list[dict]:
     return [dict(id=str(value.id), name=value.name)
             for value in application.enumerate_all_applications()]
+
+
+def application_delete(args: Namespace) -> dict:
+    return dict(deleted=application.delete_application(application_id=args.application_id))
 
 
 def application_show(args: Namespace) -> dict:
@@ -116,13 +115,13 @@ def application_update(args: Namespace) -> dict:
 
 
 HANDLERS = {
-    'ls-applications': ls_applications,
+    'applications:delete': application_delete,
     'chat': chat,
     'models:list': models_list,
-    'application:update': application_update,
-    'application:create': application_create,
-    'application:list': application_list,
-    'application:show': application_show,
+    'applications:update': application_update,
+    'applications:create': application_create,
+    'applications:list': application_list,
+    'applications:show': application_show,
     'process': process,
     'embed': embed,
     'storage:save': storage_save,

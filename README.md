@@ -27,10 +27,10 @@ See [Model providers](docs/PROVIDERS.md) for local GGUF execution, existing llam
 Provide a compatible local GGUF embedding model; these commands do not download one.
 
 ```sh
-rypiq application:create --name 'My application' \
+rypiq applications:create --name 'My application' \
   --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768
-rypiq application:list
-# Use the UUID returned by application:create:
+rypiq applications:list
+# Use the UUID returned by applications:create:
 rypiq ingest samples/sample.txt --application-id APPLICATION_UUID --chunk_size 500 --stride 400 \
   --model models/embeddinggemma-300m-Q4_0.gguf
 rypiq search 'What is this document about?' --application-id APPLICATION_UUID \
@@ -82,24 +82,27 @@ An application selects a provider and embedding/inference models. Create and upd
 
 | Command | Required arguments | Purpose |
 | --- | --- | --- |
-| `rypiq application:create` | `--name NAME --embedding-model MODEL` | Create an application and generate its API key. |
-| `rypiq application:list` | None | List applications with pagination. |
-| `rypiq ls-applications` | None | List every application's ID and name; `--output text` (default) or `--output json`. |
-| `rypiq application:show APPLICATION_UUID` | Application UUID positional argument | Show one application's details. |
-| `rypiq application:update APPLICATION_UUID` | Application UUID positional argument | Update supplied fields; omitted fields remain unchanged. |
+| `rypiq applications:create` | `--name NAME --embedding-model MODEL` | Create an application and generate its API key. |
+| `rypiq applications:list` | None | List every application's ID and name; `--output text` (default) or `--output json`. |
+| `rypiq applications:show APPLICATION_UUID` | Application UUID positional argument | Show one application's details. |
+| `rypiq applications:delete APPLICATION_UUID` | Application UUID positional argument | Delete an application that has no documents. |
+| `rypiq applications:update APPLICATION_UUID` | Application UUID positional argument | Update supplied fields; omitted fields remain unchanged. |
 
-Creation returns the generated API key. List, show, and update omit it. There is no application deletion CLI command.
+Creation returns the generated API key. List, show, and update omit it. `applications:delete APPLICATION_UUID` returns `{"deleted": true}` when deleted or `{"deleted": false}` when already absent. Applications with documents cannot be deleted; stored files are never removed by this command. Deletion runs without an interactive prompt.
 
-`ls-applications` lists all applications in UUID order, without pagination arguments.
+Application CLI commands use the plural `applications:*` domain. The former
+`application:*` names and `ls-applications` are no longer supported.
+
+`applications:list` lists all applications in UUID order, without pagination arguments.
 The default text table has `ID` and `NAME` columns; control characters in names are
 escaped so each application occupies one row. An empty database prints only the
 headers. JSON output preserves names and contains only `id` and `name`, returning
 `[]` when empty. Listing does not guarantee a snapshot during concurrent changes.
 
 ```sh
-rypiq ls-applications
-rypiq ls-applications --output text
-rypiq ls-applications --output json
+rypiq applications:list
+rypiq applications:list --output text
+rypiq applications:list --output json
 ```
 
 Example JSON output:
@@ -124,17 +127,17 @@ Embedding model, size, provider, and embedding preprocessing changes are rejecte
 
 | List option | Default | Meaning |
 | --- | --- | --- |
-| `--limit N` | `100` | Maximum applications returned; positive integer. |
-| `--offset N` | `0` | Applications to skip; nonnegative integer. |
+| `--output text\|json` | `text` | Format for all application IDs and names. |
 
 ```sh
-rypiq application:create --name 'My application' \
+rypiq applications:create --name 'My application' \
   --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768 \
   --inference-model models/your-chat-model.gguf --data '{"purpose":"local search"}'
-rypiq application:list --limit 20 --offset 0
-rypiq application:show APPLICATION_UUID
-rypiq application:update APPLICATION_UUID --name 'Renamed application'
-rypiq application:update APPLICATION_UUID --clear-inference-model
+rypiq applications:list --output json
+rypiq applications:show APPLICATION_UUID
+rypiq applications:update APPLICATION_UUID --name 'Renamed application'
+rypiq applications:update APPLICATION_UUID --clear-inference-model
+rypiq applications:delete APPLICATION_UUID
 ```
 
 Replace `models/your-chat-model.gguf` with your existing inference model. Models are not downloaded by these commands.

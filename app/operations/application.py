@@ -32,3 +32,7 @@ def list_all_applications(*, repository: ApplicationRepository) -> list[Applicat
         applications.extend(page)
         if len(page) < 100:
             return applications
+
+
+def delete_application(*, application_id: UUID, repository: ApplicationRepository) -> bool:
+    return ApplicationService(repository=repository).delete(application_id)

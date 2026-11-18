@@ -23,7 +23,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         result = execute(args)
-        if args.command == 'ls-applications' and args.output == 'text':
+        if args.command == 'applications:list' and args.output == 'text':
             serialized = format_application_table(result)
         else:
             serialized = json.dumps(result, indent=2, allow_nan=False)

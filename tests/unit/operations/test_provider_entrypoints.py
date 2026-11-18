@@ -192,11 +192,11 @@ def test_application_update_cli_merges_fields_and_redacts_key(monkeypatch, capsy
     monkeypatch.setattr(application, 'show_application', lambda **kwargs: value)
     update = Mock(side_effect=lambda **kwargs: kwargs['application'])
     monkeypatch.setattr(application, 'update_application', update)
-    cli.main(['application:update', str(value.id), '--name', 'changed', '--clear-inference-model', '--data', '{}'])
+    cli.main(['applications:update', str(value.id), '--name', 'changed', '--clear-inference-model', '--data', '{}'])
     result = json.loads(capsys.readouterr().out)
     assert result['name'] == 'changed' and result['inference_model'] is None
     assert 'api_key' not in result
-    cli.main(['application:update', str(value.id), '--inference-model', '@new-chat'])
+    cli.main(['applications:update', str(value.id), '--inference-model', '@new-chat'])
     assert json.loads(capsys.readouterr().out)['inference_model'] == '@new-chat'
 
 
