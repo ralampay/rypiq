@@ -1,6 +1,7 @@
 """CLI adapters: map parsed arguments to Python entrypoints and JSON shapes."""
 from argparse import Namespace
 from dataclasses import asdict, replace
+from app.exceptions import ValidationError
 from app.providers.contracts import ChatMessage
 
 from app import application
@@ -22,10 +23,10 @@ def model_options(args: Namespace) -> dict:
 def process(args: Namespace) -> dict:
     if args.medium == 'text-file':
         if args.chunk_size is None or args.stride is None:
-            raise ValueError('text-file requires --chunk_size and --stride')
+            raise ValidationError('text-file requires --chunk_size and --stride')
         return process_text_file(path=args.content, chunk_size=args.chunk_size, stride=args.stride)
     if args.chunk_size is not None or args.stride is not None:
-        raise ValueError('chunking options require text-file')
+        raise ValidationError('chunking options require text-file')
     return process_content(medium=args.medium, content=args.content)
 
 

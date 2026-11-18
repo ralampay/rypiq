@@ -2,6 +2,12 @@
 
 import math
 
+from app.exceptions import (
+    InvalidEmbeddingError,
+    ModelMismatchError,
+    ProviderResponseError,
+    ValidationError,
+)
 from app.models.application import Application
 from app.models.embedding import validate_embedding
 from app.models.application import validate_application
@@ -25,14 +31,14 @@ def _search(
 ) -> list[SearchResult]:
 
     if not isinstance(query, str) or not query.strip():
-        raise ValueError("Query cannot be empty")
+        raise ValidationError("Query cannot be empty")
 
     if (
         not isinstance(limit, int)
         or isinstance(limit, bool)
         or limit < 1
     ):
-        raise ValueError(
+        raise ValidationError(
             "Limit must be a positive integer"
         )
 
@@ -41,14 +47,15 @@ def _search(
         validate_metadata(metadata_filters)
     validate_application(application)
     if embedding_provider.model_name != model_identity(application.embedding_model, application.provision_type):
-        raise ValueError('Embedding provider model must match the application')
+        raise ModelMismatchError('Embedding provider model must match the application')
     # The provider accepts a list of strings.
     vectors = embedding_provider.embed([
         embedding_preprocessing(application.data, application.provision_type, application.embedding_size)[1] + query.strip()
     ])
 
-    if len(vectors) != 1 or not vectors[0]:
-        raise ValueError(
+    if (not isinstance(vectors, (list, tuple)) or len(vectors) != 1
+            or not isinstance(vectors[0], (list, tuple)) or not vectors[0]):
+        raise ProviderResponseError(
             "Expected exactly one nonempty query embedding"
         )
 
@@ -60,11 +67,14 @@ def _search(
         and math.isfinite(value)
         for value in vector
     ):
-        raise ValueError(
+        raise ProviderResponseError(
             "Query embedding contains invalid values"
         )
 
-    validate_embedding(vector, application.embedding_size)
+    try:
+        validate_embedding(vector, application.embedding_size)
+    except InvalidEmbeddingError as error:
+        raise ProviderResponseError(str(error)) from None
     return repository.search_by_vector(
         embedding=vector,
         application_id=application.id,

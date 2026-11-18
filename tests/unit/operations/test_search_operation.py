@@ -102,3 +102,17 @@ def test_search_rejects_invalid_metadata_before_embedding(filters):
         semantic_search('query', provider, repository, application=APPLICATION, metadata_filters=filters)
     assert provider.inputs is None
     assert repository.received is None
+
+
+@pytest.mark.parametrize('vectors', [None, [None], [[0, 0, 0]]])
+def test_invalid_query_provider_output_is_typed(vectors):
+    from unittest.mock import Mock
+    from app.exceptions import ProviderResponseError
+    from app.models.application import Application
+    from app.operations.documents.search import SearchDocuments
+    repository = Mock()
+    provider = Mock(model_name='model', embed=Mock(return_value=vectors))
+    with pytest.raises(ProviderResponseError):
+        SearchDocuments(query='text', embedding_provider=provider, repository=repository,
+                        application=Application(name='test', embedding_model='model', embedding_size=3)).execute()
+    repository.search_by_vector.assert_not_called()

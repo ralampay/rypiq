@@ -1,12 +1,20 @@
 from uuid import UUID
-from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 
 import sqlalchemy as sa
 
+from app.database.errors import database_connection
+from app.resources import close_resource
+from app.exceptions import (
+    ApplicationNotFoundError,
+    DocumentNotFoundError,
+    ImmutableFieldError,
+    InvalidIdentifierError,
+    ValidationError,
+)
 from app.database.repositories.document import DocumentRepository
-from app.database.repositories.postgresql._validation import positive_limit
+from app.models.validation import validate_pagination
 from app.database.repositories.postgresql.embedding import PostgreSQLEmbeddingRepository
 from app.models.document import Document, DocumentDetails, DocumentSummary
 from app.models.embedding import Embedding
@@ -20,39 +28,32 @@ class PostgreSQLDocumentRepository(DocumentRepository):
         self.applications = table.metadata.tables['public.applications']
         self.embeddings = table.metadata.tables['public.embeddings']
 
-    @contextmanager
-    def _write(self):
-        try:
-            with self.engine.begin() as connection:
-                yield connection
-        except sa.exc.IntegrityError as error:
-            if (getattr(error.orig, 'sqlstate', None) == '23505'
-                    and getattr(getattr(error.orig, 'diag', None), 'constraint_name', None)
-                    == 'uq_documents_application_name'):
-                raise ValueError('A document with this name already exists in the application') from None
-            raise
+    def _write(self, document=None):
+        return database_connection(
+            self.engine, write=True,
+            application_id=document.application_id if document is not None else None,
+            name=document.name if document is not None else None,
+        )
 
     def name_exists(self, *, application_id: UUID, name: str) -> bool:
         if not isinstance(application_id, UUID):
-            raise ValueError('Document lookup requires an application UUID')
+            raise InvalidIdentifierError('Document lookup requires an application UUID')
         name = normalize_document_name(name)
-        with self.engine.connect() as connection:
+        with database_connection(self.engine) as connection:
             return connection.scalar(sa.select(sa.exists().where(
                 self.table.c.application_id == application_id, self.table.c.name == name)))
 
     def list_summaries(self, *, application_id: UUID, limit: int = 100,
                        offset: int = 0) -> list[DocumentSummary]:
         if not isinstance(application_id, UUID):
-            raise ValueError('Document listing requires an application UUID')
-        positive_limit(limit)
-        if type(offset) is not int or offset < 0:
-            raise ValueError('Offset must be a nonnegative integer')
+            raise InvalidIdentifierError('Document listing requires an application UUID')
+        validate_pagination(limit, offset)
         query = sa.select(self.table.c.id, self.table.c.name,
                           sa.func.count(self.embeddings.c.id).label('embedding_count')).select_from(
                               self.table.outerjoin(self.embeddings)).where(
                                   self.table.c.application_id == application_id).group_by(
                                       self.table.c.id).order_by(self.table.c.id).limit(limit).offset(offset)
-        with self.engine.connect() as connection:
+        with database_connection(self.engine) as connection:
             rows = connection.execute(query).mappings().all()
         return [DocumentSummary(**row) for row in rows]
 
@@ -60,12 +61,12 @@ class PostgreSQLDocumentRepository(DocumentRepository):
         row = connection.execute(sa.select(self.applications).where(
             self.applications.c.id == application_id).with_for_update(read=True)).mappings().first()
         if row is None:
-            raise KeyError(application_id)
+            raise ApplicationNotFoundError(application_id, resource_id=application_id)
         return row
 
     def create(self, document):
         validate_document(document)
-        with self._write() as connection:
+        with self._write(document) as connection:
             self._application(connection, document.application_id)
             connection.execute(self.table.insert().values(**asdict(document)))
         return document
@@ -76,9 +77,9 @@ class PostgreSQLDocumentRepository(DocumentRepository):
         for item in embeddings:
             vector = validate_chunk(item)
             if item.document_id != document.id:
-                raise ValueError('Embedding belongs to another document')
+                raise ValidationError('Embedding belongs to another document')
             values.append({**asdict(item), 'embedding': vector})
-        with self._write() as connection:
+        with self._write(document) as connection:
             application = self._application(connection, document.application_id)
             for item in embeddings:
                 PostgreSQLEmbeddingRepository.validate_snapshot(item, application)
@@ -93,7 +94,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
         return statement
 
     def get(self, id, *, application_id=None):
-        with self.engine.connect() as connection:
+        with database_connection(self.engine) as connection:
             row = connection.execute(self._scope(sa.select(self.table).where(
                 self.table.c.id == id), application_id)).mappings().first()
         return Document(**row) if row else None
@@ -103,7 +104,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
         query = self._scope(sa.select(self.table, *[
             column.label('chunk_' + column.name) for column in self.embeddings.c
         ]).select_from(self.table.outerjoin(self.embeddings)).where(self.table.c.id == id), application_id)
-        with self.engine.connect() as connection:
+        with database_connection(self.engine) as connection:
             rows = connection.execute(query.order_by(self.embeddings.c.chunk_index,
                                                       self.embeddings.c.id)).mappings().all()
         if not rows:
@@ -116,17 +117,17 @@ class PostgreSQLDocumentRepository(DocumentRepository):
     def update(self, document, *, application_id=None):
         validate_document(document)
         if application_id is not None and document.application_id != application_id:
-            raise ValueError('Document does not match application scope')
+            raise ValidationError('Document does not match application scope')
         values = asdict(document)
         values['updated_at'] = datetime.now(timezone.utc)
-        with self._write() as connection:
+        with self._write(document) as connection:
             self._application(connection, document.application_id)
             original = connection.execute(self._scope(sa.select(self.table).where(
                 self.table.c.id == document.id), application_id).with_for_update()).mappings().first()
             if original is None:
-                raise KeyError(document.id)
+                raise DocumentNotFoundError(document.id, resource_id=document.id)
             if original['application_id'] != document.application_id:
-                raise ValueError('Document ownership cannot be changed')
+                raise ImmutableFieldError('Document ownership cannot be changed')
             connection.execute(self.table.update().where(self.table.c.id == document.id).values(**values))
         document.updated_at = values['updated_at']
         return document
@@ -137,13 +138,11 @@ class PostgreSQLDocumentRepository(DocumentRepository):
                 self.table.c.id == id), application_id)).rowcount)
 
     def list(self, limit=100, offset=0, *, application_id=None):
-        positive_limit(limit)
-        if type(offset) is not int or offset < 0:
-            raise ValueError('Offset must be a nonnegative integer')
-        with self.engine.connect() as connection:
+        validate_pagination(limit, offset)
+        with database_connection(self.engine) as connection:
             rows = connection.execute(self._scope(sa.select(self.table), application_id).order_by(
                 self.table.c.id).limit(limit).offset(offset)).mappings().all()
         return [Document(**row) for row in rows]
 
     def close(self):
-        self.engine.dispose()
+        close_resource(self.engine.dispose)

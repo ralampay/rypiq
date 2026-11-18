@@ -189,3 +189,23 @@ def test_model_is_reused(mock_llama, model_path):
 
     constructor.assert_called_once()
     assert instance.create_embedding.call_count == 2
+
+
+@pytest.mark.parametrize('response', [None, {}, {'data': [None]}, {'data': [{'index': 0}]}])
+def test_malformed_output_is_safe_provider_response_error(mock_llama, model_path, response):
+    _, instance = mock_llama
+    instance.create_embedding.return_value = response
+    provider = LocalEmbeddingProvider(str(model_path))
+    with pytest.raises(Exception) as caught:
+        provider.embed(['text'])
+    assert type(caught.value).__name__ == 'ProviderResponseError'
+
+
+def test_model_request_failure_is_safe(mock_llama, model_path):
+    _, instance = mock_llama
+    instance.create_embedding.side_effect = RuntimeError('secret input')
+    provider = LocalEmbeddingProvider(str(model_path))
+    with pytest.raises(RuntimeError) as caught:
+        provider.embed(['text'])
+    assert type(caught.value).__name__ == 'ProviderRequestError'
+    assert 'secret' not in str(caught.value)

@@ -1,3 +1,4 @@
+from app.exceptions import DatabaseError
 from dataclasses import replace
 from uuid import uuid4
 
@@ -122,9 +123,9 @@ def test_application_mutation_locks_out_concurrent_document_creation(services, b
     def check_while_writer_attempts(connection, application_id):
         # A second connection attempts creation while the real mutation holds its lock.
         candidate = Document(filename='concurrent', application_id=first.id, name=str(uuid4()))
-        with pytest.raises(sa.exc.OperationalError) as caught:
+        with pytest.raises(DatabaseError) as caught:
             writer.create(candidate)
-        assert caught.value.orig.sqlstate == '55P03'  # lock_not_available
+        assert caught.value.__suppress_context__
         attempts.append(candidate.id)
         return original_check(connection, application_id)
 

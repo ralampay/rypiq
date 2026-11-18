@@ -1,16 +1,19 @@
 import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError
 
+from app.database.errors import database_connection, database_errors
+from app.resources import close_resource
 from app.database.config import validate_database_target
 
 
+@database_errors()
 def create_database(maintenance_url, database_name):
     validate_database_target(database_name, maintenance_url.database)
     engine = sa.create_engine(maintenance_url)
+    failure = None
     try:
-        with engine.connect().execution_options(
-            isolation_level="AUTOCOMMIT"
-        ) as connection:
+        with database_connection(engine) as connection:
+            connection = connection.execution_options(isolation_level="AUTOCOMMIT")
             present = connection.execute(
                 sa.text("SELECT 1 FROM pg_database WHERE datname = :name"),
                 {"name": database_name},
@@ -28,16 +31,20 @@ def create_database(maintenance_url, database_name):
                     raise
                 return {"created": False}
             return {"created": True}
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
-        engine.dispose()
+        close_resource(engine.dispose, failure)
 
+@database_errors()
 def drop_database(maintenance_url, database_name):
     validate_database_target(database_name, maintenance_url.database)
     engine = sa.create_engine(maintenance_url)
+    failure = None
     try:
-        with engine.connect().execution_options(
-            isolation_level="AUTOCOMMIT"
-        ) as connection:
+        with database_connection(engine) as connection:
+            connection = connection.execution_options(isolation_level="AUTOCOMMIT")
             present = connection.execute(
                 sa.text("SELECT 1 FROM pg_database WHERE datname = :name"),
                 {"name": database_name},
@@ -55,8 +62,11 @@ def drop_database(maintenance_url, database_name):
                     raise
                 return {"dropped": False}
             return {"dropped": True}
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
-        engine.dispose()
+        close_resource(engine.dispose, failure)
 
 
 def database_url(settings):

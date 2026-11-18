@@ -1,3 +1,2 @@
-def positive_limit(limit):
-    if type(limit) is not int or limit < 1:
-        raise ValueError('Limit must be a positive integer')
+"""Compatibility import for the shared domain limit validator."""
+from app.models.validation import validate_limit as positive_limit

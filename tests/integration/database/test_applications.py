@@ -1,3 +1,4 @@
+from app.exceptions import DatabaseError, DatabaseIntegrityError
 from dataclasses import asdict
 from uuid import uuid4
 
@@ -51,7 +52,7 @@ def test_applications_and_mixed_size_search(backend):
             connection.execute(table.delete().where(table.c.id == first.id))
     second.api_key = first.api_key
     second.id = uuid4()
-    with pytest.raises(sa.exc.IntegrityError):
+    with pytest.raises(DatabaseIntegrityError):
         applications.create(second)
 
 
@@ -103,7 +104,7 @@ def test_failed_upgrade_rolls_back_all_changes(backend):
     create_legacy(backend)
     sa.Table('z_broken', backend.metadata,
              sa.Column('id', sa.Integer, server_default=sa.text('missing_function()')))
-    with pytest.raises(sa.exc.ProgrammingError):
+    with pytest.raises(DatabaseError):
         backend.migrate()
     inspector = sa.inspect(backend.engine)
     assert inspector.get_table_names() == ['documents']

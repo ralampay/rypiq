@@ -2,11 +2,12 @@
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from app.exceptions import ValidationError
 
 
 def build_metadata(dimensions=768):
     if type(dimensions) is not int or not 1 <= dimensions <= 16000:
-        raise ValueError('dimensions must be an integer between 1 and 16000')
+        raise ValidationError('dimensions must be an integer between 1 and 16000')
     metadata = sa.MetaData(schema='public', naming_convention={'pk': 'pk_%(table_name)s', 'ix': 'ix_%(table_name)s_%(column_0_name)s'})
     sa.Table(
         'applications', metadata,

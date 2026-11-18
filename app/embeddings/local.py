@@ -2,6 +2,12 @@ import math
 from pathlib import Path
 from threading import Lock
 
+from app.exceptions import (
+    ProviderResponseError,
+    ProviderInitializationError,
+    ProviderRequestError,
+    ProviderCleanupError,
+)
 from .base import EmbeddingProvider
 
 class LocalEmbeddingProvider(EmbeddingProvider):
@@ -20,19 +26,15 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 f"Embedding model not found: {path}"
             )
 
-        # Import only when the local provider is constructed.
-        from llama_cpp import Llama
-
         self._model_name = path.name
         self._lock = Lock()
-
-        self._model = Llama(
-            model_path=str(path),
-            embedding=True,
-            n_ctx=context_size,
-            n_gpu_layers=gpu_layers,
-            verbose=False,
-        )
+        try:
+            # Import only when the local provider is constructed.
+            from llama_cpp import Llama
+            self._model = Llama(model_path=str(path), embedding=True,
+                                n_ctx=context_size, n_gpu_layers=gpu_layers, verbose=False)
+        except Exception:
+            raise ProviderInitializationError('Local embedding model could not be loaded') from None
 
     @property
     def model_name(self) -> str:
@@ -45,16 +47,27 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         if not texts:
             return []
 
-        with self._lock:
-            response = self._model.create_embedding(texts)
+        try:
+            with self._lock:
+                response = self._model.create_embedding(texts)
+        except Exception:
+            raise ProviderRequestError('Local embedding request failed') from None
+        try:
+            return self._vectors(response, len(texts))
+        except ProviderResponseError:
+            raise
+        except (TypeError, ValueError, KeyError, IndexError, AttributeError):
+            raise ProviderResponseError('Invalid embedding response from provider') from None
 
+    @staticmethod
+    def _vectors(response, count: int) -> list[list[float]]:
         data = sorted(
             response["data"],
             key=lambda item: item["index"]
         )
 
-        if len(data) != len(texts):
-            raise ValueError(
+        if len(data) != count:
+            raise ProviderResponseError(
                 "Embedding count does not match the input count"
             )
 
@@ -63,14 +76,14 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
         for expected_index, item in enumerate(data):
             if item["index"] != expected_index:
-                raise ValueError(
+                raise ProviderResponseError(
                     "Missing or duplicate embedding index"
                 )
 
             vector = item["embedding"]
 
             if not isinstance(vector, list) or not vector:
-                raise ValueError(
+                raise ProviderResponseError(
                     "Expected a nonempty embedding vector"
                 )
 
@@ -80,14 +93,14 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 and math.isfinite(value)
                 for value in vector
             ):
-                raise ValueError(
+                raise ProviderResponseError(
                     "Embedding contains invalid values"
                 )
 
             if dimensions is None:
                 dimensions = len(vector)
             elif len(vector) != dimensions:
-                raise ValueError(
+                raise ProviderResponseError(
                     "Inconsistent embedding dimensions"
                 )
 
@@ -96,5 +109,8 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         return vectors
 
     def close(self) -> None:
-        with self._lock:
-            self._model.close()
+        try:
+            with self._lock:
+                self._model.close()
+        except Exception:
+            raise ProviderCleanupError('Local embedding cleanup failed') from None

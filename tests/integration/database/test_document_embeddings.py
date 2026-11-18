@@ -1,4 +1,5 @@
 """Real PostgreSQL coverage for aggregate persistence and the chunk-table upgrade."""
+from app.exceptions import DatabaseError, DatabaseIntegrityError
 from dataclasses import asdict, replace
 from uuid import uuid4
 
@@ -20,7 +21,7 @@ def test_aggregate_atomicity_cascade_and_chunk_metadata_search(backend):
                       embedding_model='m', embedding_size=2, metadata={'tag': {'language': 'en'}})
     second = replace(first, id=uuid4(), content='second', chunk_index=1, embedding=[0., 1.], metadata={'tag': {'language': 'fr'}})
     # Duplicate chunk IDs fail after the parent insert; the transaction must undo both.
-    with pytest.raises(sa.exc.IntegrityError):
+    with pytest.raises(DatabaseIntegrityError):
         backend.documents().create_with_embeddings(parent, [first, replace(second, id=first.id)])
     assert backend.documents().get(parent.id) is None
     assert backend.embeddings().get(first.id) is None
@@ -87,7 +88,7 @@ def test_current_legacy_upgrade_preserves_ids_and_splits_ambiguous_groups(backen
 def test_current_legacy_split_failure_restores_original_table(backend):
     rows = seed_current_legacy(backend)
     sa.Table('z_broken', backend.metadata, sa.Column('id', sa.Integer, server_default=sa.text('missing_function()')))
-    with pytest.raises(sa.exc.ProgrammingError):
+    with pytest.raises(DatabaseError):
         backend.migrate()
     assert set(sa.inspect(backend.engine).get_table_names()) == {'applications', 'documents'}
     with backend.engine.connect() as connection:

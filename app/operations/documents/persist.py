@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app.exceptions import EmptyDocumentError, ModelMismatchError
 from app.models.application import Application, validate_application
 from app.providers.config import model_identity
 from app.models.embedding import Embedding, validate_embedding
@@ -17,9 +18,9 @@ def persist_document(path: str, storage: ObjectStorage,
     name = normalize_document_name(name)
     validate_application(application)
     if result['model'] != model_identity(application.embedding_model, application.provision_type):
-        raise ValueError('Embedding provider model must match the application')
+        raise ModelMismatchError('Embedding provider model must match the application')
     if not result['chunks']:
-        raise ValueError('File has no nonempty text chunks')
+        raise EmptyDocumentError('File has no nonempty text chunks')
     source = Path(path)
     document = Document(name=name, application_id=application.id, filename=source.name, source=str(source))
     chunks = [Embedding(

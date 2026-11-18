@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app.exceptions import ValidationError
 from app.processors.base import BaseProcessor
 from app.processors.extraction import extract_file
 
@@ -14,7 +15,7 @@ class TextFileProcessor(BaseProcessor):
             or stride <= 0
             or stride > chunk_size
         ):
-            raise ValueError(
+            raise ValidationError(
                 "Require positive integer parameters "
                 "with stride <= chunk_size"
             )

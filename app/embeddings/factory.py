@@ -1,5 +1,6 @@
 """Factory for constructing embedding providers."""
 
+from app.exceptions import ProviderConfigurationError
 from app.embeddings.base import EmbeddingProvider
 from app.embeddings.local import LocalEmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
@@ -13,7 +14,7 @@ def get_embedding_provider(
 ) -> EmbeddingProvider:
 
     if provider != "local":
-        raise ValueError(
+        raise ProviderConfigurationError(
             f"Unsupported embedding provider: {provider}"
         )
 

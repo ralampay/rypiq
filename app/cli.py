@@ -4,6 +4,7 @@ import json
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.exceptions import RyPiqError, ExportError, ResourceCleanupError
 from app.cli_parser import build_parser
 from app.diagnostics import ConfigurationReport, check_configuration
 from app.cli_handlers import execute
@@ -69,11 +70,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         if destination is not None:
             try:
                 write_json_export(destination, result)
-            except (OSError, ValueError, TypeError):
+            except (OSError, ValueError, TypeError, ResourceCleanupError):
                 if args.command == 'documents:create':
-                    raise RuntimeError(f"Document persisted but JSON export failed. Document ID: {result['id']}. "
-                                       'Retry export with documents:show --id ID --output PATH.') from None
-                raise RuntimeError('Record loaded but JSON export failed; check the destination.') from None
+                    raise ExportError(f"Document persisted but JSON export failed. Document ID: {result['id']}. "
+                                       'Retry export with documents:show --id ID --output PATH.',
+                                      operation=args.command, completed_steps=('persist',), resource_id=result['id']) from None
+                raise ExportError('Record loaded but JSON export failed; check the destination.',
+                                  operation=args.command, completed_steps=('load',), resource_id=result['id']) from None
         if args.command == 'embeddings:show' and not args.embeddings_full:
             result = embedding_preview(result)
         if args.command == 'applications:list' and args.output == 'text':
@@ -83,6 +86,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         else:
             serialized = json.dumps(result, indent=2, allow_nan=False)
         print(serialized)
+    except RyPiqError as exc:
+        parser.error(str(exc))
     except SQLAlchemyError:
         parser.error('Database operation failed; check connectivity, permissions, pgvector availability and schema configuration')
     except (ValueError, OSError, RuntimeError, KeyError) as exc:

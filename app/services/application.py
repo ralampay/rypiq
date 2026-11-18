@@ -1,9 +1,10 @@
 """Application CRUD; callers own the injected repository and its resources."""
 from uuid import UUID
 
+from app.exceptions import ApplicationNotFoundError
 from app.database.repositories.application import ApplicationRepository
 from app.models.application import Application, validate_application
-from app.services._validation import validate_id, validate_pagination
+from app.models.validation import validate_id, validate_pagination
 
 
 class ApplicationService:
@@ -19,7 +20,7 @@ class ApplicationService:
         validate_id(application_id)
         application = self.repository.get(application_id)
         if application is None:
-            raise KeyError(application_id)
+            raise ApplicationNotFoundError(application_id, resource_id=application_id)
         return application
 
     def list(self, *, limit: int = 100, offset: int = 0) -> list[Application]:

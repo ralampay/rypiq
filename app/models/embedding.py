@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from app.exceptions import InvalidEmbeddingError
 from app.models.document import utc_now
 
 import math
@@ -12,9 +13,9 @@ from numbers import Real
 
 def validate_embedding(embedding, dimensions: int) -> list[float]:
     if type(dimensions) is not int or not 1 <= dimensions <= 16000:
-        raise ValueError("Embedding size must be an integer between 1 and 16000")
+        raise InvalidEmbeddingError("Embedding size must be an integer between 1 and 16000")
     if not isinstance(embedding, (list, tuple)) or len(embedding) != dimensions:
-        raise ValueError(f'Embedding must contain exactly {dimensions} numbers')
+        raise InvalidEmbeddingError(f'Embedding must contain exactly {dimensions} numbers')
     try:
         if any(isinstance(x, bool) or not isinstance(x, Real) for x in embedding):
             raise ValueError
@@ -23,7 +24,7 @@ def validate_embedding(embedding, dimensions: int) -> list[float]:
         if any(not math.isfinite(x) for x in vector) or not any(vector):
             raise ValueError
     except (TypeError, ValueError, OverflowError, struct.error):
-        raise ValueError('Embedding must contain finite float32 values and have nonzero magnitude') from None
+        raise InvalidEmbeddingError('Embedding must contain finite float32 values and have nonzero magnitude') from None
     return vector
 
 

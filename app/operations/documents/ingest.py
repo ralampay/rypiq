@@ -1,3 +1,4 @@
+from app.exceptions import ModelMismatchError
 from app.models.application import Application, validate_application
 from app.providers.config import embedding_preprocessing, model_identity
 from app.database.repositories.document import DocumentRepository
@@ -26,7 +27,7 @@ class IngestDocument:
     def execute(self) -> DocumentDetails:
         validate_application(self.application)
         if self.provider.model_name != model_identity(self.application.embedding_model, self.application.provision_type):
-            raise ValueError("Embedding provider model must match the application")
+            raise ModelMismatchError("Embedding provider model must match the application")
         name = prepare_document_name(name=self.name, application_id=self.application.id, repository=self.repository)
         result = EmbedTextFile(path=self.path, chunk_size=self.chunk_size,
                                stride=self.stride, embedding_provider=self.provider,

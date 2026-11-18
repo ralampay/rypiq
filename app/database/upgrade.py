@@ -5,6 +5,7 @@ import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.schema import AddConstraint, CreateIndex
 
+from app.exceptions import SchemaCompatibilityError
 from app.models.application import Application
 
 
@@ -16,7 +17,7 @@ def upgrade_legacy(connection, metadata, columns):
 
     dimensions = getattr(columns.get('embedding', {}).get('type'), 'dim', None)
     if type(dimensions) is not int or not 1 <= dimensions <= 16000:
-        raise ValueError('Incompatible schema for documents; expected a fixed legacy vector size')
+        raise SchemaCompatibilityError('Incompatible schema for documents; expected a fixed legacy vector size')
     documents = metadata.tables['public.documents']
     legacy = sa.Table('documents', sa.MetaData(schema='public'), *(
         sa.Column(c.name, Vector(dimensions) if c.name == 'embedding' else c.type,
@@ -60,7 +61,7 @@ def split_documents(connection, metadata):
     for table in historical.sorted_tables:
         validate_table(connection, table)
     if sa.inspect(connection).has_table('embeddings', schema='public'):
-        raise ValueError('Incompatible schema: embeddings already exists beside legacy documents')
+        raise SchemaCompatibilityError('Incompatible schema: embeddings already exists beside legacy documents')
     old = historical.tables['public.documents']
     rows = connection.execute(sa.select(old)).mappings().all()
     groups = {}
@@ -96,9 +97,9 @@ def split_documents(connection, metadata):
         connection.execute(documents.insert(), parents)
         connection.execute(embeddings.insert(), children)
     if connection.scalar(sa.select(sa.func.count()).select_from(embeddings)) != len(rows):
-        raise ValueError('Embedding migration count mismatch')
+        raise SchemaCompatibilityError('Embedding migration count mismatch')
     if connection.scalar(sa.select(sa.func.count()).select_from(documents)) != len(groups):
-        raise ValueError('Document migration count mismatch')
+        raise SchemaCompatibilityError('Document migration count mismatch')
 
 
 def assign_document_names(rows: list[dict]) -> None:

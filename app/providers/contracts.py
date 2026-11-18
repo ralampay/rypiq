@@ -2,11 +2,10 @@
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from app.exceptions import ProviderError  # Public compatibility import.
 from app.embeddings.base import EmbeddingProvider
 
 
-class ProviderError(RuntimeError):
-    """Safe provider failure; upstream diagnostics are never included."""
 
 
 @dataclass(frozen=True)

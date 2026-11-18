@@ -1,4 +1,5 @@
 """Names, listing counts, and schema upgrades verified on disposable PostgreSQL."""
+from app.exceptions import DatabaseError
 from dataclasses import asdict, replace
 from uuid import UUID, uuid4
 from concurrent.futures import ThreadPoolExecutor
@@ -156,7 +157,7 @@ def test_name_migration_preserves_values_and_handles_generated_collisions(backen
 def test_name_migration_failure_rolls_back_column_and_data(backend):
     _, originals, _ = seed_unnamed(backend)
     sa.Table('z_broken', backend.metadata, sa.Column('id', sa.Integer, server_default=sa.text('missing_function()')))
-    with pytest.raises(sa.exc.ProgrammingError):
+    with pytest.raises(DatabaseError):
         backend.migrate()
     assert 'name' not in {column['name'] for column in sa.inspect(backend.engine).get_columns('documents')}
     with backend.engine.connect() as connection:

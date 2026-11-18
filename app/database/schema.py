@@ -2,11 +2,13 @@
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from app.database.errors import database_connection
+from app.exceptions import SchemaCompatibilityError, ValidationError
 
 
 def build_metadata(dimensions=768):
     if type(dimensions) is not int or not 1 <= dimensions <= 16000:
-        raise ValueError('dimensions must be an integer between 1 and 16000')
+        raise ValidationError('dimensions must be an integer between 1 and 16000')
     metadata = sa.MetaData(schema='public', naming_convention={'pk': 'pk_%(table_name)s', 'ix': 'ix_%(table_name)s_%(column_0_name)s'})
     sa.Table(
         'applications', metadata,
@@ -113,13 +115,13 @@ def validate_table(connection, table):
         incompatible |= expected != actual
         temporary.drop(connection)
     if incompatible:
-        raise ValueError(f'Incompatible schema for {table.name}; no tables were changed. '
+        raise SchemaCompatibilityError(f'Incompatible schema for {table.name}; no tables were changed. '
                          'Apply a deliberate schema change before retrying.')
 
 
 def initialize_schema(engine, metadata):
     """Create declared tables or atomically upgrade the recognized legacy schema."""
-    with engine.begin() as connection:
+    with database_connection(engine, write=True) as connection:
         connection.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public')
         existing = set(sa.inspect(connection).get_table_names(schema='public'))
         missing = [table.name for table in metadata.sorted_tables if table.name not in existing]

@@ -80,6 +80,7 @@ from uuid import UUID
 
 from app.database.repositories.document import DocumentRepository
 from app.models.document import Document
+from app.exceptions import ValidationError, DocumentNotFoundError
 
 
 class UpdateDocumentSource:
@@ -96,11 +97,11 @@ class UpdateDocumentSource:
 
     def execute(self) -> Document:
         if not isinstance(self.source, str) or not self.source.strip():
-            raise ValueError("Source must be nonempty")
+            raise ValidationError("Source must be nonempty")
 
         document = self.repository.get(self.document_id)
         if document is None:
-            raise KeyError(self.document_id)
+            raise DocumentNotFoundError(self.document_id, resource_id=self.document_id)
 
         document.source = self.source
         return self.repository.update(document)
@@ -139,7 +140,7 @@ def test_command_rejects_invalid_source_before_io():
         document_id=uuid4(), source=" ", repository=repository,
     )
 
-    with pytest.raises(ValueError, match="nonempty"):
+    with pytest.raises(ValidationError, match="nonempty"):
         command.execute()
 
     repository.get.assert_not_called()
@@ -154,7 +155,7 @@ def test_command_does_not_write_a_missing_document():
         document_id=uuid4(), source="new", repository=repository,
     )
 
-    with pytest.raises(KeyError):
+    with pytest.raises(DocumentNotFoundError):
         command.execute()
 
     repository.update.assert_not_called()
@@ -166,7 +167,7 @@ Use fakes/mocks to verify observable boundaries and side effects, not internal p
 
 - Return the existing domain object, collection, or documented result dictionary when extending an operation. For a new complex result, a small typed dataclass may clarify the contract; do not introduce a universal result envelope.
 - Validate inputs before effects where possible. External conditions may still change between validation and execution; preserve the underlying atomic guarantees and failure handling.
-- Use clear existing exceptions such as `ValueError`, `KeyError`, and relevant I/O errors. Add a domain-specific exception only when callers need a distinct recovery path. Expected validation failures remain exceptions, not Rails-style field-error payloads.
+- Use the public hierarchy in `app.exceptions`; see [exception contracts](EXCEPTIONS.md). Choose the narrowest existing recovery case and preserve built-in compatibility. Translate database, provider, and storage failures at adapter boundaries; retain native source-file errors. Add a subclass only when callers need a distinct recovery path. Expected validation failures remain exceptions, not field-error payloads.
 - Handle expected failures at the CLI boundary, preserving established JSON output, exit codes, and sanitized messages. Lower layers do not format terminal responses.
 - Preserve unexpected failures rather than converting them into apparent success. Avoid broad catch-and-continue blocks. Catching broadly for cleanup or sanitized entrypoint diagnostics is appropriate when the original failure is preserved or execution fails clearly.
 - Never include credentials, full connection URLs, or raw driver messages in public diagnostics. Distinguish partial completion when a command crosses independently committed boundaries.

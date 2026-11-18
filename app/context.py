@@ -1,6 +1,7 @@
 """Application resources with explicit database connection-pool ownership."""
 from dataclasses import dataclass, field
 
+from app.resources import close_resource
 from app.database.base import DatabaseBackend
 from app.database.factory import get_database
 from app.database.repositories.document import DocumentRepository
@@ -25,13 +26,13 @@ class ApplicationContext:
         return self.database.applications()
 
     def close(self):
-        self.database.close()
+        close_resource(self.database.close)
 
     def __enter__(self):
         return self
 
-    def __exit__(self, *args):
-        self.close()
+    def __exit__(self, exc_type, exc, traceback):
+        close_resource(self.close, exc)
 
 
 def create_context() -> ApplicationContext:
@@ -40,6 +41,6 @@ def create_context() -> ApplicationContext:
         return ApplicationContext(
             documents=database.documents(), storage=get_storage(), database=database,
         )
-    except Exception:
-        database.close()
+    except BaseException as failure:
+        close_resource(database.close, failure)
         raise

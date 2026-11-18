@@ -217,3 +217,15 @@ def test_catalog_listing_and_discovery_merging(tmp_path):
 def test_chat_rejects_nonobject_usage(usage):
     with pytest.raises(ProviderError):
         chat_response({'choices': [{'message': {'content': 'yes'}}], 'usage': usage}, 'model')
+
+
+def test_discovery_malformed_response_is_distinct_from_request_failure():
+    from unittest.mock import Mock
+    from app.providers.remote import OpenAIProvider
+    from app.providers.config import ProviderSettings
+    client = Mock()
+    client.models.list.return_value = {'data': [{'id': None}]}
+    provider = OpenAIProvider(ProviderSettings(provider='openai', capability='embedding', model='m', embedding_size=3), client=client)
+    with pytest.raises(ProviderError) as caught:
+        provider.list_models()
+    assert type(caught.value).__name__ == 'ProviderResponseError'

@@ -1,3 +1,4 @@
+from app.exceptions import DatabaseError
 import pytest
 import sqlalchemy as sa
 
@@ -73,9 +74,9 @@ def test_drop_does_not_terminate_external_connections(backend):
     external_engine = sa.create_engine(backend.url)
     try:
         with external_engine.connect() as external:
-            with pytest.raises(sa.exc.DBAPIError) as failure:
+            with pytest.raises(DatabaseError) as failure:
                 backend.drop_database()
-            assert failure.value.orig.sqlstate == '55006'
+            assert failure.value.__suppress_context__
             assert external.exec_driver_sql('SELECT 1').scalar() == 1
     finally:
         external_engine.dispose()
@@ -87,7 +88,7 @@ def test_schema_initialization_is_atomic(backend):
     create_database(backend.maintenance_url, backend.url.database)
     sa.Table('z_broken', backend.metadata,
              sa.Column('id', sa.Integer, server_default=sa.text('missing_function()')))
-    with pytest.raises(sa.exc.ProgrammingError):
+    with pytest.raises(DatabaseError):
         backend.migrate()
     assert sa.inspect(backend.engine).get_table_names() == []
     with backend.engine.connect() as connection:

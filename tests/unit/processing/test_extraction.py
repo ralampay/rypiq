@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.processors import extraction
+from app.processors.extractors import spreadsheet
 from app.operations.processing.file import process_text_file
 
 
@@ -51,12 +52,12 @@ def test_modern_workbook_closed(monkeypatch, fails):
     sheet.iter_rows.side_effect = ValueError('broken') if fails else None
     sheet.iter_rows.return_value = [('text',)]
     book.worksheets = [sheet]
-    monkeypatch.setattr(extraction, 'load_workbook', Mock(return_value=book))
+    monkeypatch.setattr(spreadsheet, 'load_workbook', Mock(return_value=book))
     if fails:
         with pytest.raises(ValueError):
-            extraction._excel(BytesIO())
+            spreadsheet.extract_excel(BytesIO())
     else:
-        assert extraction._excel(BytesIO()) == 'Data\ntext'
+        assert spreadsheet.extract_excel(BytesIO()) == 'Data\ntext'
     book.close.assert_called_once()
 
 
@@ -65,10 +66,27 @@ def test_legacy_workbook_released(monkeypatch, fails):
     book = Mock()
     book.sheets.side_effect = ValueError('broken') if fails else None
     book.sheets.return_value = []
-    monkeypatch.setattr(extraction.xlrd, 'open_workbook', Mock(return_value=book))
+    monkeypatch.setattr(spreadsheet.xlrd, 'open_workbook', Mock(return_value=book))
     if fails:
         with pytest.raises(ValueError):
-            extraction._xls(BytesIO())
+            spreadsheet.extract_xls(BytesIO())
     else:
-        assert extraction._xls(BytesIO()) == ''
+        assert spreadsheet.extract_xls(BytesIO()) == ''
     book.release_resources.assert_called_once()
+
+
+@pytest.mark.parametrize('filename, content, expected', [
+    ('file.unknown', b'text', 'UnsupportedFileTypeError'),
+    ('file.pdf', b'not a pdf', 'DocumentExtractionError'),
+    ('file.txt', b'\xff', 'DocumentExtractionError'),
+])
+def test_extraction_failures_have_public_types(tmp_path, filename, content, expected):
+    from app.processors.extraction import extract_file
+    from app.exceptions import ProcessingError, RyPiqError
+    path = tmp_path / filename
+    path.write_bytes(content)
+    with pytest.raises(ProcessingError) as caught:
+        extract_file(path)
+    assert type(caught.value).__name__ == expected
+    assert isinstance(caught.value, ValueError)
+    assert isinstance(caught.value, RyPiqError)

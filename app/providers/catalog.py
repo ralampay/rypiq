@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from app.exceptions import ModelCatalogError
 from app.models.application import Application, validate_application
 from app.providers.config import CAPABILITIES, PROVIDERS, validate_options, validate_provider_config
 from app.providers.contracts import ModelInfo
@@ -26,22 +27,22 @@ def load_catalog(path: str | Path | None = None) -> dict[str, CatalogEntry]:
     source = Path(path or os.getenv('RYPIQ_MODELS_CONFIG', DEFAULT_CATALOG)).expanduser().resolve()
     try:
         raw = yaml.safe_load(source.read_text())
-    except (OSError, yaml.YAMLError):
-        raise ValueError('Cannot read model catalog; check the configured file') from None
+    except (OSError, UnicodeError, yaml.YAMLError):
+        raise ModelCatalogError('Cannot read model catalog; check the configured file') from None
     if not isinstance(raw, dict) or set(raw) != {'models'} or not isinstance(raw['models'], dict):
-        raise ValueError('Model catalog must contain a models mapping')
+        raise ModelCatalogError('Model catalog must contain a models mapping')
     result = {}
     for alias, item in raw['models'].items():
         if (not isinstance(alias, str) or not alias.strip() or alias.startswith('@') or
                 not isinstance(item, dict) or set(item) - {'provider', 'capabilities', 'path', 'model', 'options'}):
-            raise ValueError('Invalid model catalog entry')
+            raise ModelCatalogError('Invalid model catalog entry')
         provider, capabilities = item.get('provider'), item.get('capabilities')
         if (provider not in PROVIDERS or not isinstance(capabilities, list) or not capabilities or
                 any(c not in CAPABILITIES for c in capabilities) or len(set(capabilities)) != len(capabilities)):
-            raise ValueError('Invalid catalog provider or capabilities')
+            raise ModelCatalogError('Invalid catalog provider or capabilities')
         model = item.get('path' if provider == 'local' else 'model')
         if not isinstance(model, str) or not model.strip():
-            raise ValueError('Catalog entry requires a local path or remote model ID')
+            raise ModelCatalogError('Catalog entry requires a local path or remote model ID')
         options = item.get('options', {})
         for capability in capabilities:
             validate_options(options, capability)
@@ -57,7 +58,7 @@ def resolve_model(model: str, provider: str, capability: str,
         return model, {}
     entry = catalog.get(model[1:])
     if entry is None or entry.provider != provider or capability not in entry.capabilities:
-        raise ValueError('Model alias is missing or incompatible with provider/capability')
+        raise ModelCatalogError('Model alias is missing or incompatible with provider/capability')
     return entry.model, deepcopy(entry.options)
 
 

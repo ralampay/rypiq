@@ -1,3 +1,4 @@
+from app.exceptions import ValidationError
 from app.processors.base import BaseProcessor
 from app.processors.text import TextProcessor
 
@@ -10,7 +11,7 @@ def process_content(medium: str, content: str) -> dict:
     processor_class = PROCESSORS.get(medium)
 
     if processor_class is None:
-        raise ValueError(
+        raise ValidationError(
             f"Unsupported medium: {medium}"
         )
 

@@ -101,3 +101,13 @@ def test_vector_count_mismatch(sample_text_file):
             stride=3,
             provider_factory=lambda **kwargs: provider,
         )
+
+
+@pytest.mark.parametrize('vectors', [None, [None], [{'bad': 'vector'}]])
+def test_invalid_injected_provider_output_is_typed(vectors):
+    from unittest.mock import Mock
+    from app.operations.embeddings.embed_file import embed_chunks
+    from app.exceptions import ProviderResponseError
+    document = {'chunks': [{'text': 'hello', 'index': 0}]}
+    with pytest.raises(ProviderResponseError):
+        embed_chunks(document, Mock(embed=Mock(return_value=vectors)), 1)

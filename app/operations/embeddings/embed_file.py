@@ -1,6 +1,7 @@
 """Embedding workflows using caller-owned providers."""
 import math
 
+from app.exceptions import EmptyDocumentError, ProviderResponseError, ValidationError
 from app.embeddings.base import EmbeddingProvider
 from app.operations.processing.file import process_text_file
 
@@ -9,10 +10,10 @@ DEFAULT_PREFIX = 'title: none | text: '
 
 def prepare_text_file(path: str, chunk_size: int, stride: int, batch_size: int) -> dict:
     if type(batch_size) is not int or batch_size < 1:
-        raise ValueError('batch_size must be a positive integer')
+        raise ValidationError('batch_size must be a positive integer')
     document = process_text_file(path=path, chunk_size=chunk_size, stride=stride)
     if not any(chunk['text'].strip() for chunk in document['chunks']):
-        raise ValueError('File has no nonempty text chunks')
+        raise EmptyDocumentError('File has no nonempty text chunks')
     return document
 
 
@@ -25,18 +26,18 @@ def embed_chunks(document: dict, provider: EmbeddingProvider, batch_size: int,
     for start in range(0, len(chunks), batch_size):
         batch = chunks[start:start + batch_size]
         vectors = provider.embed([document_prefix + chunk['text'] for chunk in batch])
-        if len(vectors) != len(batch):
-            raise ValueError('Embedding count mismatch')
+        if not isinstance(vectors, (list, tuple)) or len(vectors) != len(batch):
+            raise ProviderResponseError('Embedding count mismatch')
         for chunk, vector in zip(batch, vectors, strict=True):
-            if not vector:
-                raise ValueError('Empty embedding vector')
+            if not isinstance(vector, (list, tuple)) or not vector:
+                raise ProviderResponseError('Empty embedding vector')
             if any(isinstance(value, bool) or not isinstance(value, (int, float))
                    or not math.isfinite(value) for value in vector):
-                raise ValueError('Embedding contains invalid values')
+                raise ProviderResponseError('Embedding contains invalid values')
             if dimensions is None:
                 dimensions = len(vector)
             elif len(vector) != dimensions:
-                raise ValueError('Inconsistent vector dimensions')
+                raise ProviderResponseError('Inconsistent vector dimensions')
             records.append({**chunk, 'embedding': vector})
     return {**document, 'model': provider.model_name, 'dimensions': dimensions,
             'embedded_chunk_count': len(records), 'chunks': records}

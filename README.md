@@ -152,6 +152,8 @@ See [application commands](docs/DATABASE.md#application-commands) for configurat
 `config/storage.yml` controls original-file storage. `STORAGE_ENV` defaults to `DATABASE_ENV`; `RYPIQ_STORAGE_CONFIG` overrides its configuration path. Storage paths remain independent of database reset.
 
 Library callers should use `with create_context() as context:` from `app.context` or `with get_database() as database:` from `app.database.factory` to release connection pools reliably.
+See [Python exceptions](docs/EXCEPTIONS.md) for the public hierarchy, compatibility, and recovery examples.
+
 
 ## CLI reference
 

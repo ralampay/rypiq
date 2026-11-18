@@ -31,3 +31,14 @@ def test_bad_storage_configuration(tmp_path, monkeypatch, body):
 def test_adapter_selection_stays_in_factory(tmp_path, monkeypatch):
     configure(tmp_path, monkeypatch, {'test': {'adapter': 'unsupported'}})
     assert load_storage_config()['adapter'] == 'unsupported'
+
+
+@pytest.mark.parametrize('body', [
+    {'test': None}, {'test': {'adapter': 'local'}},
+    {'test': {'adapter': 'local', 'root': 42}},
+])
+def test_malformed_environment_is_configuration_error(tmp_path, monkeypatch, body):
+    configure(tmp_path, monkeypatch, body)
+    with pytest.raises(Exception) as caught:
+        load_storage_config()
+    assert type(caught.value).__name__ == 'StorageConfigurationError'

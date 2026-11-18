@@ -1,9 +1,10 @@
 """Application-scoped chunk CRUD using caller-owned resources."""
 from uuid import UUID
+from app.exceptions import EmbeddingNotFoundError
 from app.database.repositories.embedding import EmbeddingRepository
 from app.models.embedding import Embedding
 from app.models.validation import validate_chunk
-from app.services._validation import validate_id
+from app.models.validation import validate_id
 
 
 class EmbeddingService:
@@ -21,7 +22,7 @@ class EmbeddingService:
         validate_id(embedding_id)
         value = self.repository.get(embedding_id, application_id=self.application_id)
         if value is None:
-            raise KeyError(embedding_id)
+            raise EmbeddingNotFoundError(embedding_id, resource_id=embedding_id)
         return value
 
     def list(self, *, document_id: UUID) -> list[Embedding]:

@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from app.database.repositories.embedding import EmbeddingRepository
-from app.services._validation import validate_id
+from app.models.validation import validate_id
 
 
 def delete_embedding(*, embedding_id: UUID, repository: EmbeddingRepository) -> bool:

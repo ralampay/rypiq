@@ -5,8 +5,9 @@ from dataclasses import replace
 from pathlib import Path
 from threading import Condition, get_ident
 
+from app.exceptions import ModelSessionStateError, ProviderCleanupError, ValidationError
 from app.providers.config import ProviderSettings, validate_options
-from app.providers.contracts import EmbeddingProvider, InferenceProvider, ProviderError
+from app.providers.contracts import EmbeddingProvider, InferenceProvider
 from app.providers.factory import create_provider
 
 
@@ -30,9 +31,9 @@ class LocalModelSession:
     def open_provider(self, settings: ProviderSettings) -> Iterator[EmbeddingProvider | InferenceProvider]:
         """Borrow a local provider; callers must not close or retain it past the lease."""
         if settings.provider != 'local' or settings.capability not in ('embedding', 'inference'):
-            raise ValueError('Local model sessions require a supported local capability')
+            raise ValidationError('Local model sessions require a supported local capability')
         if not isinstance(settings.model, str) or not settings.model.strip():
-            raise ValueError('Local model path must be nonempty')
+            raise ValidationError('Local model path must be nonempty')
         options = dict(context_size=settings.context_size, gpu_layers=settings.gpu_layers)
         if settings.capability == 'inference' and settings.chat_format is not None:
             options['chat_format'] = settings.chat_format
@@ -43,7 +44,7 @@ class LocalModelSession:
         owner = get_ident()
         with self._condition:
             if self._closing or self._closed:
-                raise RuntimeError('Local model session is closed or closing')
+                raise ModelSessionStateError('Local model session is closed or closing')
             # Construction under the lock makes concurrent first use atomic. Models
             # execute outside this lock, using their own existing execution locks.
             if key not in self._providers:
@@ -69,7 +70,7 @@ class LocalModelSession:
         """Reject new leases, wait for active work, and attempt each cleanup once."""
         with self._condition:
             if get_ident() in self._leases:
-                raise RuntimeError('Cannot close a local model session while holding a provider lease')
+                raise ModelSessionStateError('Cannot close a local model session while holding a provider lease')
             if self._closing:
                 self._condition.wait_for(lambda: self._closed)
             if self._closed:
@@ -90,12 +91,12 @@ class LocalModelSession:
                 self._closed = True
                 self._condition.notify_all()
         if failed:
-            raise ProviderError('Local model session cleanup failed; resources may remain open') from None
+            raise ProviderCleanupError('Local model session cleanup failed; resources may remain open') from None
 
     def __enter__(self) -> 'LocalModelSession':
         with self._condition:
             if self._closing or self._closed:
-                raise RuntimeError('Local model session is closed or closing')
+                raise ModelSessionStateError('Local model session is closed or closing')
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:

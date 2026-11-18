@@ -5,6 +5,12 @@ from contextlib import contextmanager, AbstractContextManager
 from pathlib import Path
 from uuid import UUID
 
+from app.exceptions import (
+    InvalidIdentifierError,
+    ModelMismatchError,
+    ProviderCleanupError,
+    ValidationError,
+)
 from app.database.factory import get_database
 from app.models.application import Application, validate_application, chunking_settings, with_chunking_options
 from app.services.application import ApplicationService
@@ -52,10 +58,10 @@ def open_embedding_provider(*, model_path: str = DEFAULT_MODEL, context_size: in
                             model_session: LocalModelSession | None = None
                             ) -> Iterator[EmbeddingProvider]:
     if type(context_size) is not int or context_size < 1:
-        raise ValueError('context_size must be positive')
+        raise ValidationError('context_size must be positive')
     if model_session is not None:
         if provider_factory is not None:
-            raise ValueError('Inject the provider factory into the model session instead')
+            raise ValidationError('Inject the provider factory into the model session instead')
         settings = ProviderSettings(provider='local', capability='embedding', model=model_path,
                                     embedding_size=768, context_size=context_size, gpu_layers=gpu_layers)
         with model_session.open_provider(settings) as provider:
@@ -79,7 +85,7 @@ def open_embedding_provider(*, model_path: str = DEFAULT_MODEL, context_size: in
                 if failure is not None:
                     failure.add_note('Embedding provider cleanup failed; resources may remain open.')
                 else:
-                    raise RuntimeError('Operation completed, but embedding provider cleanup failed') from None
+                    raise ProviderCleanupError('Operation completed, but embedding provider cleanup failed') from None
 
 
 def embed_file(*, path: str, chunk_size: int, stride: int, model_path: str = DEFAULT_MODEL,
@@ -105,20 +111,20 @@ def _application_settings(application: Application, capability: str, model_path:
     settings = settings_for(application, capability)
     if model_path is not None:
         if application.provision_type != 'local':
-            raise ValueError('Model path overrides are only supported for local applications')
+            raise ValidationError('Model path overrides are only supported for local applications')
         resolved, _ = resolve_model(model_path, 'local', capability, _catalog_for(model_path))
         if model_identity(resolved, 'local') != model_identity(settings.model, 'local'):
-            raise ValueError('Model override must match the application model filename')
+            raise ModelMismatchError('Model override must match the application model filename')
         settings = replace(settings, model=resolved)
     if settings.provider != 'local' and (context_size is not None or gpu_layers is not None):
-        raise ValueError('Local runtime overrides cannot be used with remote providers')
+        raise ValidationError('Local runtime overrides cannot be used with remote providers')
     if context_size is not None:
         if type(context_size) is not int or context_size < 1:
-            raise ValueError('context_size must be positive')
+            raise ValidationError('context_size must be positive')
         settings = replace(settings, context_size=context_size)
     if gpu_layers is not None:
         if type(gpu_layers) is not int or gpu_layers < -1:
-            raise ValueError('gpu_layers must be an integer of at least -1')
+            raise ValidationError('gpu_layers must be an integer of at least -1')
         settings = replace(settings, gpu_layers=gpu_layers)
     return settings
 
@@ -171,7 +177,7 @@ def create_document(*, name: str, path: str, application_id: UUID, batch_size: i
         settings = _application_settings(application, 'embedding')
         chunk_size, stride = chunking_settings(application.data)
         if type(batch_size) is not int or batch_size < 1:
-            raise ValueError('batch_size must be a positive integer')
+            raise ValidationError('batch_size must be a positive integer')
         with _open_configured_provider(settings, None, embedding_factory=get_embedding_provider) as provider:
             return IngestDocument(name=name, path=path, chunk_size=chunk_size, stride=stride,
                                   batch_size=batch_size, embedding_provider=provider,
@@ -256,7 +262,7 @@ def chat(*, messages: list[ChatMessage], application_id: UUID | None = None,
          temperature: float | None = None, model_session: LocalModelSession | None = None) -> ChatResult:
     validate_chat(messages, max_tokens, temperature)
     if (application_id is None) == (model_path is None):
-        raise ValueError('Choose exactly one application ID or standalone local model')
+        raise ValidationError('Choose exactly one application ID or standalone local model')
     if application_id is not None:
         with get_database() as database:
             value = get_application(application_id=application_id, repository=database.applications())
@@ -274,7 +280,7 @@ def list_models(*, application_id: UUID | None = None, discover: bool = False) -
     configured = catalog_models(load_catalog())
     if application_id is None:
         if discover:
-            raise ValueError('Remote discovery requires an application ID')
+            raise InvalidIdentifierError('Remote discovery requires an application ID')
         return merge_models(configured, [])
     with get_database() as database:
         value = get_application(application_id=application_id, repository=database.applications())
@@ -315,7 +321,7 @@ def ingest_document(path: str, storage: ObjectStorage, repository: DocumentRepos
     """Compatibility entrypoint: compose embedding, then use the shared persistence operation."""
     validate_application(application)
     if application.provision_type != "local":
-        raise ValueError("Use IngestDocument with an injected provider for remote embeddings")
+        raise ValidationError("Use IngestDocument with an injected provider for remote embeddings")
     name = prepare_document_name(name=name, application_id=application.id, repository=repository)
     settings = settings_for(application, "embedding")
     embedding_options.setdefault("context_size", settings.context_size)

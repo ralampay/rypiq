@@ -5,6 +5,12 @@ from app.storage.models import StoredObject
 
 
 class ObjectStorage(ABC):
+    """Built-in adapters raise StorageError for object I/O and preserve source I/O.
+
+    Invalid keys raise InvalidStorageKeyError. Publication followed by failed
+    staging cleanup raises StoragePublicationError with the published key.
+    Missing deletes return False. See docs/EXCEPTIONS.md for compatibility.
+    """
 
     @abstractmethod
     def save(

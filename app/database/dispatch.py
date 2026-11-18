@@ -1,4 +1,5 @@
 """Each database command has one explicit purpose."""
+from app.exceptions import ValidationError
 METHODS = {
     'db:create': 'create',
     'db:migrate': 'migrate',
@@ -11,7 +12,7 @@ def method_for(command: str) -> str:
     try:
         return METHODS[command]
     except KeyError:
-        raise ValueError(f'Unknown database command {command}') from None
+        raise ValidationError(f'Unknown database command {command}') from None
 
 
 def dispatch(args, service):

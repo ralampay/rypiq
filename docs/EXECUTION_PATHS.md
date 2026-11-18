@@ -108,9 +108,15 @@ first = show_embedding(embedding_id=documents.embeddings[0].id)
 matches = search_documents(application_id=application.id, query='What does this document describe?', limit=5)
 ```
 
-The facade returns Python values: embedding dictionaries, `DocumentDetails`, or `list[SearchResult]`. It raises exceptions rather than encoding error envelopes. It never prints JSON. Search opens only database and embedding resources; it does not require object-storage configuration. Ingestion opens all three capabilities.
+The facade returns Python values: embedding dictionaries, `DocumentDetails`, or `list[SearchResult]`. It raises [typed exceptions](EXCEPTIONS.md) rather than encoding error envelopes. It never prints JSON. Search opens only database and embedding resources; it does not require object-storage configuration. Ingestion opens all three capabilities.
 
 File processing dispatches by extension to text extractors for TXT, PDF, DOCX, XLSX, XLS, XLSM, and PPTX before applying shared character chunking. The existing `text-file` names and result contracts remain supported for all formats.
+
+`app.processors.extraction.extract_file()` owns file opening, extension dispatch,
+and sanitized parser errors. Binary format readers live in
+`app.processors.extractors`: `pdf`, `word`, `spreadsheet`, and `presentation`.
+Readers borrow the input stream and release any workbook resources they create.
+Their shared text/row normalization stays inside that package in `_text.py`.
 
 For embedding alone, file/chunk validation occurs before constructing a model. Both configured embedding and the injected command share the same preparation/batching functions. There is one implementation of the embedding algorithm, even though resource construction happens at different boundaries.
 
@@ -185,8 +191,10 @@ and inference contains chat. Keep shared persistence compensation in
 Each repository interface and PostgreSQL implementation has its own module under
 `app.database.repositories`. Interfaces live in `application.py`, `document.py`,
 and `embedding.py`; implementations live in the matching modules inside the
-`postgresql/` package. Shared PostgreSQL pagination validation lives in
-`postgresql/_validation.py`. Import classes directly from their defining modules;
+`postgresql/` package. Shared UUID, limit, and pagination validation lives in
+`app.models.validation`, used directly by operations, services, and repositories.
+The former private validation modules retain compatibility imports only.
+Import classes directly from their defining modules;
 package initializers do not re-export them.
 
 The former imports are removed. Update Python callers using this mapping:

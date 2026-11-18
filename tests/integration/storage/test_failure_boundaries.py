@@ -1,3 +1,4 @@
+from app.exceptions import StorageError
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from pathlib import Path
@@ -58,7 +59,7 @@ def test_publication_failure_cleans_staging_and_allows_retry(tmp_path, monkeypat
         raise OSError('publication failed')
     with monkeypatch.context() as patch:
         patch.setattr(local.os, 'link', fail)
-        with pytest.raises(OSError, match='publication failed'):
+        with pytest.raises(StorageError, match='Storage operation failed'):
             storage.save(source, 'file', 'application/octet-stream')
     assert not storage.exists('file')
     assert list(storage.root.iterdir()) == []
@@ -152,8 +153,9 @@ def test_cleanup_failure_preserves_commit_state(tmp_path, monkeypatch, publicati
             patch.setattr(local.os, 'link', fail_link)
             with pytest.raises(OSError) as error:
                 storage.save(source, 'file', 'text/plain')
-            assert error.value is primary
-            assert primary.__notes__
+            assert isinstance(error.value, StorageError)
+            assert error.value.__suppress_context__
+            assert 'staging file' in error.value.__notes__[0]
             assert not storage.exists('file')
         else:
             with pytest.raises(RuntimeError, match='published'):
@@ -170,6 +172,6 @@ def test_staging_creation_failure_has_no_published_object(tmp_path, monkeypatch)
     def fail(**kwargs):
         raise OSError('staging unavailable')
     monkeypatch.setattr(local.tempfile, 'NamedTemporaryFile', fail)
-    with pytest.raises(OSError, match='staging unavailable'):
+    with pytest.raises(StorageError, match='Storage operation failed'):
         storage.save(source, 'file', 'text/plain')
     assert not storage.exists('file')

@@ -8,6 +8,12 @@ from app.models.embedding import Embedding
 
 
 class DocumentRepository(ABC):
+    """Persistence contract; built-in adapters raise app.exceptions types.
+
+    Reads return None when absent; required parents and missing updates raise
+    NotFoundError subclasses. Writes may raise ValidationError, ConflictError,
+    or DatabaseError. Deleting an absent document returns False.
+    """
 
     @abstractmethod
     def create(self, document: Document) -> Document:

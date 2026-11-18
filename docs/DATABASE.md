@@ -60,8 +60,9 @@ Document names are trimmed and nonempty. Fresh setup and migration install the
 named `UNIQUE(application_id, name)` constraint and an empty-name check on the
 non-null text column. Uniqueness is case-sensitive; applications may reuse names.
 Document service/repository updates may rename a document under the same rules.
-Name conflicts produce a safe error, including concurrent writes. Other database
-integrity failures retain their normal exception behavior.
+Name conflicts raise `DuplicateDocumentNameError`, including concurrent writes. Other
+constraint failures raise `DatabaseIntegrityError`; adapter failures use `DatabaseError`
+subclasses. See [exception contracts](EXCEPTIONS.md).
 
 ### Existing database upgrade
 
@@ -189,8 +190,11 @@ application. Embedding lists require a document ID; document lists use paginatio
 CRUD does not generate vectors or touch object storage. Updates take complete
 objects; parent ownership, chunk parent IDs, and model snapshots are immutable.
 
-Missing reads/updates raise `KeyError`; missing deletes return `False`. Invalid
-inputs raise `ValueError`. Document deletion cascades to chunks and preserves the
+Missing service reads and repository/service updates raise the appropriate
+`ApplicationNotFoundError`, `DocumentNotFoundError`, or `EmbeddingNotFoundError`
+(all compatible with `KeyError`). Repository reads return `None`; missing deletes
+return `False`. Invalid inputs raise `ValidationError` subclasses (compatible with
+`ValueError`); conflicts have distinct `ConflictError` subclasses. Document deletion cascades to chunks and preserves the
 stored original. Ingestion uses `create_with_embeddings(document, embeddings)`
 for a single database transaction. On database failure it compensates only the
 newly stored original; filesystem and database operations are not one transaction.
