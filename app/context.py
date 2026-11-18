@@ -3,7 +3,9 @@ from dataclasses import dataclass, field
 
 from app.database.base import DatabaseBackend
 from app.database.factory import get_database
-from app.database.repositories.base import DocumentRepository, ApplicationRepository, EmbeddingRepository
+from app.database.repositories.document import DocumentRepository
+from app.database.repositories.application import ApplicationRepository
+from app.database.repositories.embedding import EmbeddingRepository
 from app.storage.base import ObjectStorage
 from app.storage.factory import get_storage
 

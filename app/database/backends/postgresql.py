@@ -2,7 +2,7 @@
 import sqlalchemy as sa
 
 from app.database.base import DatabaseBackend
-from app.database.repositories.base import ApplicationRepository
+from app.database.repositories.application import ApplicationRepository
 from app.database.config import validate_config
 from app.database.postgresql_connection import create_database, database_url, drop_database
 from app.database.schema import build_metadata, initialize_schema
@@ -58,15 +58,15 @@ class PostgreSQLBackend(DatabaseBackend):
         return result
 
     def documents(self):
-        from app.database.repositories.postgresql import PostgreSQLDocumentRepository
+        from app.database.repositories.postgresql.document import PostgreSQLDocumentRepository
         return PostgreSQLDocumentRepository(self.engine, self.metadata.tables['public.documents'])
 
     def embeddings(self):
-        from app.database.repositories.postgresql import PostgreSQLEmbeddingRepository
+        from app.database.repositories.postgresql.embedding import PostgreSQLEmbeddingRepository
         return PostgreSQLEmbeddingRepository(self.engine, self.metadata.tables['public.embeddings'])
 
     def applications(self) -> ApplicationRepository:
-        from app.database.repositories.postgresql import PostgreSQLApplicationRepository
+        from app.database.repositories.postgresql.application import PostgreSQLApplicationRepository
         return PostgreSQLApplicationRepository(self.engine, self.metadata.tables['public.applications'])
 
     def close(self):

@@ -1,5 +1,5 @@
 from uuid import UUID
-from app.database.repositories.base import DocumentRepository
+from app.database.repositories.document import DocumentRepository
 from app.models.document import DocumentDetails
 from app.services._validation import validate_id
 

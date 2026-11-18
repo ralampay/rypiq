@@ -3,8 +3,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 from app.database.factory import get_database
-from app.database.repositories.base import DocumentRepository
-from app.database.repositories.postgresql import PostgreSQLDocumentRepository
+from app.database.repositories.document import DocumentRepository
+from app.database.repositories.postgresql.document import PostgreSQLDocumentRepository
 
 
 @contextmanager

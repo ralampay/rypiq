@@ -1,6 +1,6 @@
 """Application-scoped chunk CRUD using caller-owned resources."""
 from uuid import UUID
-from app.database.repositories.base import EmbeddingRepository
+from app.database.repositories.embedding import EmbeddingRepository
 from app.models.embedding import Embedding
 from app.models.validation import validate_chunk
 from app.services._validation import validate_id

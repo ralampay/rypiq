@@ -38,7 +38,7 @@ def test_application_defaults_and_key_redaction():
 def test_document_size_rejected_before_database_io(size):
     from unittest.mock import Mock
     from uuid import uuid4
-    from app.database.repositories.postgresql import PostgreSQLEmbeddingRepository
+    from app.database.repositories.postgresql.embedding import PostgreSQLEmbeddingRepository
 
     engine = Mock()
     repository = PostgreSQLEmbeddingRepository(engine, build_metadata().tables['public.embeddings'])

@@ -110,7 +110,7 @@ def test_repository_scope_cannot_reassign_documents(services, backend):
 @pytest.mark.parametrize('action', ['update', 'delete'])
 def test_application_mutation_locks_out_concurrent_document_creation(services, backend, monkeypatch, action):
     import sqlalchemy as sa
-    from app.database.repositories.postgresql import PostgreSQLDocumentRepository
+    from app.database.repositories.postgresql.document import PostgreSQLDocumentRepository
 
     applications, _, first, _ = services
     repository = applications.repository

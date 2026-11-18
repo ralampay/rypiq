@@ -31,7 +31,7 @@ from app.operations.documents.list import list_documents
 from app.models.embedding import Embedding
 from app.operations.documents.get import get_document
 from app.operations.documents.delete import delete_document as delete_document_record
-from app.database.repositories.base import DocumentRepository
+from app.database.repositories.document import DocumentRepository
 from app.storage.base import ObjectStorage
 from app.operations.documents.persist import persist_document
 from app.models.search import SearchResult

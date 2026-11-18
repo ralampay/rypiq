@@ -3,7 +3,7 @@ from pathlib import Path
 from app.models.application import Application, validate_application
 from app.providers.config import model_identity
 from app.models.embedding import Embedding, validate_embedding
-from app.database.repositories.base import DocumentRepository
+from app.database.repositories.document import DocumentRepository
 from app.storage.base import ObjectStorage
 from app.models.document import Document, DocumentDetails
 from app.operations.storage.save import save_file

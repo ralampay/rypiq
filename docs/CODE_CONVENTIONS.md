@@ -78,7 +78,7 @@ The following three Python blocks form one illustrative example module. `UpdateD
 ```python
 from uuid import UUID
 
-from app.database.repositories.base import DocumentRepository
+from app.database.repositories.document import DocumentRepository
 from app.models.document import Document
 
 
@@ -192,7 +192,7 @@ Object storage and PostgreSQL do not share a transaction. Multi-system operation
 | Factory construction | [database](../app/database/factory.py), [storage](../app/storage/factory.py), [embeddings](../app/embeddings/factory.py) |
 | Commands and compatibility functions | [ingestion](../app/operations/documents/ingest.py), [search](../app/operations/documents/search.py) |
 | Small operations and handler selection | [text-file processing](../app/operations/processing/file.py), [processor dispatch](../app/operations/processing/content.py) |
-| Repository contract and SQL implementation | [contract](../app/database/repositories/base.py), [PostgreSQL implementation](../app/database/repositories/postgresql.py) |
+| Repository contract and SQL implementation | [contract](../app/database/repositories/document.py), [PostgreSQL implementation](../app/database/repositories/postgresql/document.py) |
 | Explicit schema and domain model | [schema](../app/database/schema.py), [Document](../app/models/document.py) |
 | Unit and integration testing examples | [search unit tests](../tests/unit/operations/test_search_operation.py), [pipeline integrations](../tests/integration/database/test_pipeline.py) |
 

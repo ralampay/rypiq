@@ -1,6 +1,6 @@
 from app.models.application import Application, validate_application
 from app.providers.config import embedding_preprocessing, model_identity
-from app.database.repositories.base import DocumentRepository
+from app.database.repositories.document import DocumentRepository
 from app.storage.base import ObjectStorage
 from app.models.document import DocumentDetails
 from app.embeddings.base import EmbeddingProvider

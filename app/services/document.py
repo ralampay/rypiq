@@ -2,7 +2,8 @@
 from dataclasses import replace
 from uuid import UUID
 
-from app.database.repositories.base import ApplicationRepository, DocumentRepository
+from app.database.repositories.application import ApplicationRepository
+from app.database.repositories.document import DocumentRepository
 from app.models.document import Document
 from app.services._validation import validate_id, validate_pagination
 from app.models.validation import validate_document as _validate_document

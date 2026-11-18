@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from app.database.repositories.base import EmbeddingRepository
+from app.database.repositories.embedding import EmbeddingRepository
 from app.services._validation import validate_id
 from app.models.embedding import Embedding
 

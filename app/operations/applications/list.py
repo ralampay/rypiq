@@ -1,4 +1,4 @@
-from app.database.repositories.base import ApplicationRepository
+from app.database.repositories.application import ApplicationRepository
 from app.models.application import Application
 from app.services.application import ApplicationService
 

@@ -1,6 +1,6 @@
 """Validate ingestion names before generating embeddings or storing originals."""
 from uuid import UUID
-from app.database.repositories.base import DocumentRepository
+from app.database.repositories.document import DocumentRepository
 from app.models.validation import normalize_document_name
 from app.services._validation import validate_id
 

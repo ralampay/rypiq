@@ -43,7 +43,7 @@ def test_aggregate_rejects_foreign_chunk_before_connection():
     from uuid import uuid4
     from app.models.document import Document
     from app.models.embedding import Embedding
-    from app.database.repositories.postgresql import PostgreSQLDocumentRepository
+    from app.database.repositories.postgresql.document import PostgreSQLDocumentRepository
 
     engine = Mock()
     repository = PostgreSQLDocumentRepository(engine, build_metadata().tables['public.documents'])

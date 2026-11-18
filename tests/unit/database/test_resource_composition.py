@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from app import db
-from app.database.repositories.postgresql import PostgreSQLDocumentRepository
+from app.database.repositories.postgresql.document import PostgreSQLDocumentRepository
 from app.database.schema import build_metadata
 
 

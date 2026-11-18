@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 
-from app.database.repositories.base import (
-    DocumentRepository, ApplicationRepository, EmbeddingRepository,
-)
+from app.database.repositories.document import DocumentRepository
+from app.database.repositories.application import ApplicationRepository
+from app.database.repositories.embedding import EmbeddingRepository
 
 
 class DatabaseBackend(ABC):

@@ -1,6 +1,7 @@
 """Application-scoped document summaries; no chunk vectors or file access."""
 from uuid import UUID
-from app.database.repositories.base import ApplicationRepository, DocumentRepository
+from app.database.repositories.application import ApplicationRepository
+from app.database.repositories.document import DocumentRepository
 from app.models.document import DocumentSummary
 from app.operations.applications.get import get_application
 

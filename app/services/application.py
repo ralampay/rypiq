@@ -1,7 +1,7 @@
 """Application CRUD; callers own the injected repository and its resources."""
 from uuid import UUID
 
-from app.database.repositories.base import ApplicationRepository
+from app.database.repositories.application import ApplicationRepository
 from app.models.application import Application, validate_application
 from app.services._validation import validate_id, validate_pagination
 

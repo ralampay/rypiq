@@ -180,6 +180,29 @@ embedding-record access. Processing extracts/chunks content, storage manages fil
 and inference contains chat. Keep shared persistence compensation in
 `documents.persist`, and dependency construction/cleanup in `app.application`.
 
+## Repository modules and import migration
+
+Each repository interface and PostgreSQL implementation has its own module under
+`app.database.repositories`. Interfaces live in `application.py`, `document.py`,
+and `embedding.py`; implementations live in the matching modules inside the
+`postgresql/` package. Shared PostgreSQL pagination validation lives in
+`postgresql/_validation.py`. Import classes directly from their defining modules;
+package initializers do not re-export them.
+
+The former imports are removed. Update Python callers using this mapping:
+
+| Class | Former module | New module |
+| --- | --- | --- |
+| `ApplicationRepository` | `app.database.repositories.base` | `app.database.repositories.application` |
+| `DocumentRepository` | `app.database.repositories.base` | `app.database.repositories.document` |
+| `EmbeddingRepository` | `app.database.repositories.base` | `app.database.repositories.embedding` |
+| `PostgreSQLApplicationRepository` | `app.database.repositories.postgresql` | `app.database.repositories.postgresql.application` |
+| `PostgreSQLDocumentRepository` | `app.database.repositories.postgresql` | `app.database.repositories.postgresql.document` |
+| `PostgreSQLEmbeddingRepository` | `app.database.repositories.postgresql` | `app.database.repositories.postgresql.embedding` |
+
+Class names, method signatures, persistence behavior, and resource ownership are
+unchanged. The backend continues to construct repositories sharing its engine.
+
 ## Compatibility and extension points
 
 - `documents:create` replaces `embeddings:create`, `embed`, and `ingest`. Python `create_document()`, `ingest_file()`, `ingest_document()`, and `IngestDocument.execute()` return `DocumentDetails(document, embeddings)`. `show_document()` returns the same type; `show_embedding()` returns `Embedding`. There are no adapters for the former chunk-as-Document contract. Standalone embedding APIs still return their existing dictionaries.
