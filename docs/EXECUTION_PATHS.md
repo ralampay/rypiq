@@ -30,7 +30,7 @@ flowchart TD
 2. `app.cli_parser.build_parser()` defines syntax and shared options without constructing resources.
 3. `app.cli_handlers` maps parsed values to explicit Python arguments. Its handlers convert domain objects into the existing JSON shapes.
 4. `app.application` constructs configured dependencies through factories, invokes shared operations, and releases the resources it owns.
-5. `app.cli` formats output: JSON to stdout (with an optional full export for `embeddings:create` and `embeddings:show`), or a text table for `applications:list` by default. It converts failures into sanitized, nonzero exits.
+5. `app.cli` formats output: JSON to stdout (with an optional full export for `documents:create`, `documents:show`, and `embeddings:show`), or a text table for `applications:list` by default. It converts failures into sanitized, nonzero exits.
 
 `applications:list` defaults to a text table and accepts `--output text|json` as a
 format selector. Its handler projects only IDs and names from
@@ -43,17 +43,17 @@ without printing partial results. The Python `enumerate_applications()` paginati
 operation to `ApplicationService.delete()`. The facade owns database cleanup;
 the repository enforces deletion restrictions and returns whether a row was deleted.
 
-`embeddings:create` calls `application.create_embeddings()`, which loads the
+`documents:create` calls `application.create_document()`, which loads the
 application once, resolves its provider and `data.chunking` settings, and delegates
 to `IngestDocument`. Missing chunk settings default independently to 500/400.
-Show/delete use database-only facades and injected operations on the document
-repository, identifying one chunk by UUID without an application scope argument.
+Document show/delete use the document repository; embedding show/delete use the
+embedding repository. Both use database-only facades and globally unique UUIDs.
 They neither construct providers nor touch object storage.
 
 `app.cli_output` validates export destinations and writes complete JSON through a
 temporary file followed by atomic replacement. Export runs only after successful
-persistence. Console formatting copies the payload and shortens long vectors
-unless `--embeddings-full` is set. A failed export reports the persisted IDs and
+persistence. Embedding-show console formatting copies the payload and shortens long vectors
+unless `--embeddings-full` is set. Document outputs contain chunk summaries without vectors. A failed export reports the persisted IDs and
 leaves their records and original files intact; no database rollback is attempted.
 
 Database handlers use `execute_database_command(command: str)`, which validates the name before creating resources. The injected `DatabaseCommands` facade delegates to the PostgreSQL backend. Supported names remain `db:create`, `db:migrate`, `db:drop`, and `db:reset`.
@@ -76,7 +76,7 @@ command combinations use the normal argument-error exit status 2.
 Use `app.application` when environment configuration and automatic resource ownership are appropriate:
 
 ```python
-from app.application import create_application, create_embeddings, embed_file, search_documents, show_embedding, delete_embedding
+from app.application import create_application, create_document, embed_file, search_documents, show_embedding, delete_embedding
 from app.database.commands import execute_database_command
 
 # Requires an existing configured database; upgrades recognized legacy schemas.
@@ -90,12 +90,12 @@ vectors = embed_file(
     path='samples/sample.txt', chunk_size=500, stride=400,
     model_path='models/embeddinggemma-300m-Q4_0.gguf',
 )
-documents = create_embeddings(application_id=application.id, path='samples/sample.txt')
-first = show_embedding(embedding_id=documents[0].id)
+documents = create_document(application_id=application.id, path='samples/sample.txt')
+first = show_embedding(embedding_id=documents.embeddings[0].id)
 matches = search_documents(application_id=application.id, query='What does this document describe?', limit=5)
 ```
 
-The facade returns Python values: embedding dictionaries, `list[Document]`, or `list[SearchResult]`. It raises exceptions rather than encoding error envelopes. It never prints JSON. Search opens only database and embedding resources; it does not require object-storage configuration. Ingestion opens all three capabilities.
+The facade returns Python values: embedding dictionaries, `DocumentDetails`, or `list[SearchResult]`. It raises exceptions rather than encoding error envelopes. It never prints JSON. Search opens only database and embedding resources; it does not require object-storage configuration. Ingestion opens all three capabilities.
 
 File processing dispatches by extension to text extractors for TXT, PDF, DOCX, XLSX, XLS, XLSM, and PPTX before applying shared character chunking. The existing `text-file` names and result contracts remain supported for all formats.
 
@@ -130,7 +130,7 @@ with create_context() as context:
         matches = SearchDocuments(
             application=application,
             query='What does this document describe?', limit=5,
-            embedding_provider=provider, repository=context.documents,
+            embedding_provider=provider, repository=context.embeddings,
         ).execute()
 ```
 
@@ -141,8 +141,8 @@ For database-only library work, prefer `with app.db.open_document_repository() a
 ## Operation namespaces and import migration
 
 Operations now use domain packages and action modules. The former flat import paths
-have been removed; Python callers must update their imports. Callable signatures,
-return values, CLI names, and JSON output are unchanged.
+have been removed; Python callers must update their imports. The document/embedding
+split also changes ingestion and search result types as described below.
 
 | Former module | New module and exported operations |
 | --- | --- |
@@ -157,8 +157,8 @@ return values, CLI names, and JSON output are unchanged.
 
 Import from action modules directly; package initializers do not re-export symbols.
 For configured calls, use `from app.application import embed_text_file, ingest_document`.
-These functions preserve their existing behavior, including local model session
-borrowing and the local-only restriction on `ingest_document()`.
+These functions retain local model session borrowing and the local-only restriction
+on `ingest_document()`. Ingestion now returns `DocumentDetails`.
 
 New operations belong to their domain package. Document ingestion and search
 coordinate document workflows; embeddings contains vector generation and individual
@@ -168,7 +168,10 @@ and inference contains chat. Keep shared persistence compensation in
 
 ## Compatibility and extension points
 
-- The `embed` and `ingest` CLI commands have been removed in favor of `embeddings:create`; Python `embed_file()` and `ingest_file()` remain supported. `embed_text_file()` retains its signature. `ingest_document()` and `semantic_search()` now require a keyword `application` argument; their result shapes remain unchanged. Configured ingestion/search require `application_id`. Application creation/list/show delegate to reusable operations and repositories; no operation receives CLI namespaces or owns borrowed resources.
+- `documents:create` replaces `embeddings:create`, `embed`, and `ingest`. Python `create_document()`, `ingest_file()`, `ingest_document()`, and `IngestDocument.execute()` return `DocumentDetails(document, embeddings)`. `show_document()` returns the same type; `show_embedding()` returns `Embedding`. There are no adapters for the former chunk-as-Document contract. Standalone embedding APIs still return their existing dictionaries.
+- Search uses the embedding repository and returns `SearchResult(embedding, document, distance)`. Pass optional `metadata_filters` to Python search APIs or `--metadata-filter JSON` to the CLI. The filter is a JSON object matched by JSONB containment before cosine ranking. CLI matches contain both IDs, chunk text/metadata, storage key, and distance.
+- Parent `Document` objects carry file information and application ownership. `Embedding` objects carry chunk text, vector, model snapshots, and metadata. `ApplicationContext.embeddings` and `DatabaseBackend.embeddings()` expose the new repository. `DocumentRepository.details()` loads a parent and its ordered children in one statement. Parent and chunk CRUD remain separate from model generation.
+
 - Keep small transformations such as text processing and storage listing as functions. Reuse factories for configured construction instead of placing environment lookups inside a command.
 - Add a new CLI command by defining parser syntax, an explicit handler, and an operation or command appropriate to the use case. Keep JSON presentation in handlers and execution/resource ownership in the Python layers.
 - Add backend-only behavior directly to the operation layer and test it without importing the CLI. Add a configured facade only when resource construction is genuinely useful to callers.
@@ -177,7 +180,7 @@ See [code conventions](CODE_CONVENTIONS.md) for layer responsibilities and [AGEN
 
 ## Failures and ownership
 
-Injected ingestion rejects a mismatched provider model before reading or embedding the file. Ingestion validates embedding results before storing the source file. Repository writes still commit individually; the command does not invent a cross-system transaction. If persistence fails, compensation attempts every record created by that invocation and then its source object. Cleanup failures are added as notes to the original exception instead of replacing it or stopping remaining cleanup.
+Injected ingestion rejects a mismatched provider model before reading or embedding the file. Ingestion validates embedding results before storing the source file. The document repository inserts the parent and all embeddings in one transaction. If persistence fails, PostgreSQL rolls back every row and ingestion attempts to delete its newly stored object. Cleanup failures are attached to the original exception as notes. Storage and PostgreSQL still do not share a transaction.
 
 The configured embedding context closes the provider it constructs. A cleanup failure preserves any active operation error; if the operation finished successfully but cleanup fails, a distinct error reports that partial outcome. Injected providers remain caller-owned.
 

@@ -24,7 +24,10 @@ from app.operations.applications.delete import delete_application as delete_appl
 from app.embeddings.base import EmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
 from app.embeddings.factory import get_embedding_provider
-from app.models.document import Document
+from app.models.document import DocumentDetails
+from app.models.embedding import Embedding
+from app.operations.documents.get import get_document
+from app.operations.documents.delete import delete_document as delete_document_record
 from app.database.repositories.base import DocumentRepository
 from app.storage.base import ObjectStorage
 from app.operations.documents.persist import persist_document
@@ -125,7 +128,7 @@ def _open_configured_provider(settings: ProviderSettings, model_session: LocalMo
 
 
 def search_documents(*, query: str, application_id: UUID, limit: int = 10,
-                     model_path: str | None = None,
+                     model_path: str | None = None, metadata_filters: dict | None = None,
                      context_size: int | None = None, gpu_layers: int | None = None,
                      model_session: LocalModelSession | None = None) -> list[SearchResult]:
     with get_database() as database:
@@ -133,13 +136,14 @@ def search_documents(*, query: str, application_id: UUID, limit: int = 10,
         settings = _application_settings(application, 'embedding', model_path, context_size, gpu_layers)
         with _open_configured_provider(settings, model_session, embedding_factory=get_embedding_provider) as provider:
             return SearchDocuments(query=query, limit=limit, embedding_provider=provider,
-                                   application=application, repository=database.documents()).execute()
+                                   application=application, repository=database.embeddings(),
+                                   metadata_filters=metadata_filters).execute()
 
 
 def ingest_file(*, path: str, chunk_size: int, stride: int, application_id: UUID,
                 model_path: str | None = None, context_size: int | None = None,
                 gpu_layers: int | None = None, batch_size: int = 1,
-                model_session: LocalModelSession | None = None) -> list[Document]:
+                model_session: LocalModelSession | None = None) -> DocumentDetails:
     from app.storage.factory import get_storage
 
     with get_database() as database:
@@ -152,7 +156,7 @@ def ingest_file(*, path: str, chunk_size: int, stride: int, application_id: UUID
                                   repository=database.documents()).execute()
 
 
-def create_embeddings(*, path: str, application_id: UUID, batch_size: int = 1) -> list[Document]:
+def create_document(*, path: str, application_id: UUID, batch_size: int = 1) -> DocumentDetails:
     from app.storage.factory import get_storage
 
     with get_database() as database:
@@ -168,14 +172,24 @@ def create_embeddings(*, path: str, application_id: UUID, batch_size: int = 1) -
                                   repository=database.documents()).execute()
 
 
-def show_embedding(*, embedding_id: UUID) -> Document:
+def show_document(*, document_id: UUID) -> DocumentDetails:
     with get_database() as database:
-        return get_embedding(embedding_id=embedding_id, repository=database.documents())
+        return get_document(document_id=document_id, repository=database.documents())
+
+
+def delete_document(*, document_id: UUID) -> bool:
+    with get_database() as database:
+        return delete_document_record(document_id=document_id, repository=database.documents())
+
+
+def show_embedding(*, embedding_id: UUID) -> Embedding:
+    with get_database() as database:
+        return get_embedding(embedding_id=embedding_id, repository=database.embeddings())
 
 
 def delete_embedding(*, embedding_id: UUID) -> bool:
     with get_database() as database:
-        return delete_embedding_record(embedding_id=embedding_id, repository=database.documents())
+        return delete_embedding_record(embedding_id=embedding_id, repository=database.embeddings())
 
 
 def create_application(*, name: str, embedding_model: str, provision_type: str = 'local',
@@ -284,7 +298,7 @@ def embed_text_file(path: str, chunk_size: int, stride: int,
 
 def ingest_document(path: str, storage: ObjectStorage, repository: DocumentRepository,
                     chunk_size: int, stride: int, *, application: Application,
-                    model_session: 'LocalModelSession | None' = None, **embedding_options) -> list[Document]:
+                    model_session: 'LocalModelSession | None' = None, **embedding_options) -> DocumentDetails:
     """Compatibility entrypoint: compose embedding, then use the shared persistence operation."""
     validate_application(application)
     if application.provision_type != "local":

@@ -12,7 +12,7 @@ from app import application
 
 def test_search_does_not_require_object_storage_configuration(monkeypatch):
     backend = Mock()
-    backend.documents.return_value.search_by_vector.return_value = ['match']
+    backend.embeddings.return_value.search_by_vector.return_value = ['match']
     backend.__enter__ = Mock(return_value=backend)
     backend.__exit__ = Mock()
     monkeypatch.setattr(application, 'get_database', lambda: backend)

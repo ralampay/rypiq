@@ -138,8 +138,8 @@ def test_embedding_and_ingestion(document_file):
     docs = IngestDocument(path=str(path), chunk_size=1000, stride=1000,
                           application=Application(name='test', embedding_model='fake.gguf', embedding_size=3),
                           embedding_provider=provider, storage=storage, repository=repository).execute()
-    assert docs[0].content == expected
-    assert docs[0].filename == path.name
+    assert docs.embeddings[0].content == expected
+    assert docs.document.filename == path.name
     assert storage.save.call_args.kwargs['source'] == path
     assert path.read_bytes() == original
     provider.close.assert_not_called()
@@ -159,7 +159,7 @@ def test_corrupt_file_fails_before_embedding_or_writes(tmp_path, suffix):
                        embedding_provider=provider, storage=storage, repository=repository).execute()
     provider.embed.assert_not_called()
     storage.save.assert_not_called()
-    repository.create.assert_not_called()
+    repository.create_with_embeddings.assert_not_called()
 
 
 @pytest.mark.parametrize('encrypted', [False, True])

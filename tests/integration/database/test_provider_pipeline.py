@@ -24,11 +24,11 @@ def test_remote_pipeline_preserves_application_scope_and_storage_order(backend, 
     source = tmp_path / 'source.txt'
     source.write_text('hello world')
     docs = application.ingest_file(path=str(source), chunk_size=100, stride=100, application_id=first.id)
-    assert len(docs) == 1 and docs[0].application_id == first.id
-    assert docs[0].provision_type == provider and docs[0].embedding_model == 'remote-model'
-    assert (storage.root / docs[0].storage_key).read_text() == 'hello world'
+    assert len(docs.embeddings) == 1 and docs.document.application_id == first.id
+    assert docs.embeddings[0].provision_type == provider and docs.embeddings[0].embedding_model == 'remote-model'
+    assert (storage.root / docs.document.storage_key).read_text() == 'hello world'
     matches = application.search_documents(query='hello', application_id=first.id)
-    assert [match.document.id for match in matches] == [docs[0].id]
+    assert [match.document.id for match in matches] == [docs.document.id]
     assert application.search_documents(query='hello', application_id=second.id) == []
     assert application.chat(messages=[ChatMessage('user', 'hello')], application_id=first.id).text == 'answer'
     before = len(server['requests'])

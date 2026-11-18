@@ -50,6 +50,7 @@ def test_search_embeds_query_and_returns_results():
         "embedding": [0.1, 0.2, 0.3],
         "limit": 4,
         "application_id": APPLICATION.id,
+        "metadata_filters": None,
     }
 
 
@@ -85,3 +86,19 @@ def test_search_rejects_invalid_embedding():
             FakeRepository(),
             application=APPLICATION,
         )
+
+
+def test_search_passes_metadata_filter_before_ranking():
+    provider, repository = FakeEmbeddingProvider(), FakeRepository()
+    semantic_search('query', provider, repository, application=APPLICATION,
+                    metadata_filters={'topic': {'name': 'science'}})
+    assert repository.received['metadata_filters'] == {'topic': {'name': 'science'}}
+
+
+@pytest.mark.parametrize('filters', [[], 'tag', {'bad': float('nan')}])
+def test_search_rejects_invalid_metadata_before_embedding(filters):
+    provider, repository = FakeEmbeddingProvider(), FakeRepository()
+    with pytest.raises(ValueError, match='JSON object'):
+        semantic_search('query', provider, repository, application=APPLICATION, metadata_filters=filters)
+    assert provider.inputs is None
+    assert repository.received is None

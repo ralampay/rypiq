@@ -110,7 +110,7 @@ rypiq applications:create --name 'Local example' \
   --inference-model @local-chat
 ```
 
-Local models must be existing GGUF files. `--model` on application-scoped search overrides the path only when its filename matches the selected local model; it cannot switch the application's embedding model. `--context_size` and `--gpu_layers` override local search runtime settings only when explicitly supplied. `embeddings:create` uses saved application settings and accepts none of these overrides.
+Local models must be existing GGUF files. `--model` on application-scoped search overrides the path only when its filename matches the selected local model; it cannot switch the application's embedding model. `--context_size` and `--gpu_layers` override local search runtime settings only when explicitly supplied. `documents:create` uses saved application settings and accepts none of these overrides.
 
 ### Existing llama.cpp server
 

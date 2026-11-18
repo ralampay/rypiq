@@ -4,17 +4,18 @@ import pytest
 
 from app.database.schema import build_metadata
 from app.models.document import Document
+from app.models.embedding import Embedding
 
 
 def test_application_owned_dynamic_schema():
     metadata = build_metadata()
     assert 'public.applications' in metadata.tables
     documents = metadata.tables['public.documents']
-    assert documents.c.embedding.type.dim is None
+    assert metadata.tables['public.embeddings'].c.embedding.type.dim is None
     assert not documents.c.application_id.nullable
     assert documents.c.application_id.foreign_keys
-    assert {'application_id', 'embedding_model', 'embedding_size', 'provision_type'} <= {
-        field.name for field in fields(Document)
+    assert {'embedding_model', 'embedding_size', 'provision_type'} <= {
+        field.name for field in fields(Embedding)
     }
 
 
@@ -37,11 +38,10 @@ def test_application_defaults_and_key_redaction():
 def test_document_size_rejected_before_database_io(size):
     from unittest.mock import Mock
     from uuid import uuid4
-    from app.database.repositories.postgresql import PostgreSQLDocumentRepository
+    from app.database.repositories.postgresql import PostgreSQLEmbeddingRepository
 
     engine = Mock()
-    repository = PostgreSQLDocumentRepository(engine, build_metadata().tables['public.documents'])
+    repository = PostgreSQLEmbeddingRepository(engine, build_metadata().tables['public.embeddings'])
     with pytest.raises(ValueError, match='Embedding size'):
-        repository.create(Document(content='test', embedding=[1.], embedding_size=size,
-                                   application_id=uuid4()))
+        repository.create(Embedding(content='test', embedding=[1.], embedding_size=size, document_id=uuid4()))
     engine.begin.assert_not_called()

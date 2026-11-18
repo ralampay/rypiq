@@ -1,25 +1,11 @@
-"""CRUD for pre-embedded documents within one application; never touches storage."""
+"""CRUD for parent documents within one application; never touches storage."""
 from dataclasses import replace
-import json
 from uuid import UUID
 
 from app.database.repositories.base import ApplicationRepository, DocumentRepository
 from app.models.document import Document
-from app.models.embedding import validate_embedding
 from app.services._validation import validate_id, validate_pagination
-
-
-def _validate_document(document: Document) -> None:
-    validate_id(document.id)
-    if not isinstance(document.content, str):
-        raise ValueError('Document content must be a string')
-    if not isinstance(document.metadata, dict):
-        raise ValueError('Document metadata must be a JSON object')
-    try:
-        json.dumps(document.metadata, allow_nan=False)
-    except (TypeError, ValueError):
-        raise ValueError('Document metadata must be a JSON object') from None
-    validate_embedding(document.embedding, document.embedding_size)
+from app.models.validation import validate_document as _validate_document
 
 
 class DocumentService:
@@ -36,10 +22,7 @@ class DocumentService:
         application = self.applications.get(self.application_id)
         if application is None:
             raise KeyError(self.application_id)
-        owned = replace(document, application_id=application.id,
-                        embedding_model=application.embedding_model,
-                        embedding_size=application.embedding_size,
-                        provision_type=application.provision_type)
+        owned = replace(document, application_id=application.id)
         _validate_document(owned)
         return self.repository.create(owned)
 

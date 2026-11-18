@@ -1,4 +1,10 @@
 """Shared validation for pgvector-compatible embeddings."""
+from dataclasses import dataclass, field
+from datetime import datetime
+from uuid import UUID, uuid4
+
+from app.models.document import utc_now
+
 import math
 import struct
 from numbers import Real
@@ -21,3 +27,19 @@ def validate_embedding(embedding, dimensions: int) -> list[float]:
     return vector
 
 
+
+@dataclass
+class Embedding:
+    """A searchable text chunk and the model snapshot that produced its vector."""
+    document_id: UUID
+    content: str
+    embedding: list[float]
+    id: UUID = field(default_factory=uuid4)
+    chunk_index: int = 0
+    model_name: str = ''
+    embedding_model: str = ''
+    embedding_size: int = 768
+    provision_type: str = 'local'
+    metadata: dict = field(default_factory=dict)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)

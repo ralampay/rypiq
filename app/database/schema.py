@@ -27,28 +27,36 @@ def build_metadata(dimensions=768):
     sa.Table(
         'documents', metadata,
         sa.Column('id', UUID(as_uuid=True), primary_key=True),
-        sa.Column('content', sa.Text(), nullable=False),
-        sa.Column('embedding', Vector(), nullable=False),
         sa.Column('application_id', UUID(as_uuid=True),
                   sa.ForeignKey('public.applications.id', ondelete='RESTRICT'), nullable=False, index=True),
-        sa.Column('embedding_model', sa.Text(), nullable=False),
-        sa.Column('embedding_size', sa.Integer(), nullable=False),
-        sa.Column('provision_type', sa.Text(), nullable=False),
-        sa.CheckConstraint('vector_dims(embedding) = embedding_size', name='ck_documents_vector_size'),
-        sa.CheckConstraint('embedding_size BETWEEN 1 AND 16000', name='ck_documents_size'),
-        sa.CheckConstraint("provision_type IN ('local', 'openai', 'llama-server')",
-                           name='ck_documents_provider'),
         sa.Column('storage_key', sa.Text(), nullable=True),
         sa.Column('filename', sa.Text(), nullable=False),
         sa.Column('content_type', sa.Text(), nullable=False),
         sa.Column('source', sa.Text(), nullable=False),
-        sa.Column('source_id', UUID(as_uuid=True), nullable=True),
-        sa.Column('chunk_index', sa.Integer(), nullable=False),
-        sa.Column('model_name', sa.Text(), nullable=False),
         sa.Column('metadata', JSONB(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     )
+    embeddings = sa.Table(
+        'embeddings', metadata,
+        sa.Column('id', UUID(as_uuid=True), primary_key=True),
+        sa.Column('document_id', UUID(as_uuid=True),
+                  sa.ForeignKey('public.documents.id', ondelete='CASCADE'), nullable=False, index=True),
+        sa.Column('content', sa.Text(), nullable=False),
+        sa.Column('embedding', Vector(), nullable=False),
+        sa.Column('chunk_index', sa.Integer(), nullable=False),
+        sa.Column('model_name', sa.Text(), nullable=False),
+        sa.Column('embedding_model', sa.Text(), nullable=False),
+        sa.Column('embedding_size', sa.Integer(), nullable=False),
+        sa.Column('provision_type', sa.Text(), nullable=False),
+        sa.Column('metadata', JSONB(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint('vector_dims(embedding) = embedding_size', name='ck_embeddings_vector_size'),
+        sa.CheckConstraint('embedding_size BETWEEN 1 AND 16000', name='ck_embeddings_size'),
+        sa.CheckConstraint("provision_type IN ('local', 'openai', 'llama-server')", name='ck_embeddings_provider'),
+    )
+    sa.Index('ix_embeddings_metadata', embeddings.c.metadata, postgresql_using='gin')
     return metadata
 
 
@@ -117,7 +125,11 @@ def initialize_schema(engine, metadata):
             columns = {c['name']: c for c in sa.inspect(connection).get_columns('documents', schema='public')}
             if 'application_id' not in columns and 'applications' not in existing:
                 from app.database.upgrade import upgrade_legacy
-                upgrade_legacy(connection, metadata, columns)
+                from app.database.legacy_schema import build_metadata as legacy_metadata
+                upgrade_legacy(connection, legacy_metadata(), columns)
+            if 'embedding' in columns:
+                from app.database.upgrade import split_documents
+                split_documents(connection, metadata)
         for table in metadata.sorted_tables:
             if table.name in sa.inspect(connection).get_table_names(schema='public'):
                 validate_table(connection, table)

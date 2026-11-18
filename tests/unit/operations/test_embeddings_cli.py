@@ -6,7 +6,8 @@ import pytest
 
 from app import application, cli
 from app.models.application import Application, validate_application
-from app.models.document import Document
+from app.models.document import Document, DocumentDetails
+from app.models.embedding import Embedding
 import app.storage.factory
 
 
@@ -35,26 +36,26 @@ def resources(monkeypatch, tmp_path):
 
 def create_args(resources):
     value, _, _, _, _, source = resources
-    return ['embeddings:create', str(source), '--application-id', str(value.id)]
+    return ['documents:create', str(source), '--application-id', str(value.id)]
 
 
-@pytest.mark.parametrize('full', [False, True])
-def test_create_persists_and_exports_full_vectors(resources, tmp_path, capsys, full):
+def test_create_persists_and_exports_chunk_summaries(resources, tmp_path, capsys):
     value, backend, repository, provider, storage, _ = resources
-    output = tmp_path / 'vectors.json'
+    output = tmp_path / 'document.json'
     output.write_text('old export')
-    cli.main(create_args(resources) + ['--output', str(output)] + (['--embeddings-full'] if full else []))
+    cli.main(create_args(resources) + ['--output', str(output)])
     console = json.loads(capsys.readouterr().out)
     exported = json.loads(output.read_text())
-    assert exported['indexed_chunks'] == 2
+    assert console == exported
+    assert exported['embedding_count'] == 2
     assert exported['storage_key'] == 'stored.txt'
-    assert len(exported['chunks']) == repository.create.call_count == 2
-    for record, saved in zip(exported['chunks'], repository.create.call_args_list):
-        assert record['id'] == str(saved.args[0].id)
-        assert record['application_id'] == str(value.id)
-        assert record['embedding'] == list(range(8))
-        assert record['metadata']['chunk_size'] == 5
-    assert console['chunks'][0]['embedding'] == (list(range(8)) if full else [0, 1, 2, '...', 5, 6, 7])
+    repository.create_with_embeddings.assert_called_once()
+    parent, chunks = repository.create_with_embeddings.call_args.args
+    assert exported['id'] == str(parent.id)
+    assert exported['application_id'] == str(value.id)
+    assert [item['id'] for item in exported['embeddings']] == [str(chunk.id) for chunk in chunks]
+    assert all('embedding' not in item for item in exported['embeddings'])
+    assert chunks[0].embedding == list(range(8))
     backend.applications.return_value.get.assert_called_once_with(value.id)
     storage.save.assert_called_once()
     provider.close.assert_called_once()
@@ -66,16 +67,17 @@ def test_create_defaults_and_no_export(resources, capsys):
     value.data = {}
     cli.main(create_args(resources))
     result = json.loads(capsys.readouterr().out)
-    assert result['indexed_chunks'] == 1
-    assert repository.create.call_args.args[0].metadata['chunk_size'] == 500
-    assert repository.create.call_args.args[0].metadata['stride'] == 400
+    assert result['embedding_count'] == 1
+    assert repository.create_with_embeddings.call_args.args[1][0].metadata['chunk_size'] == 500
+    assert repository.create_with_embeddings.call_args.args[1][0].metadata['stride'] == 400
     assert list(source.parent.iterdir()) == [source]
 
 
 @pytest.mark.parametrize('options', [[], ['--embeddings-full']])
 def test_show_exports_without_loading_provider_or_storage(resources, capsys, tmp_path, options):
     value, backend, repository, provider, storage, _ = resources
-    record = Document(content='text', embedding=list(range(8)), application_id=value.id)
+    record = Embedding(content='text', embedding=list(range(8)), document_id=uuid4())
+    repository = backend.embeddings.return_value
     repository.get.return_value = record
     output = tmp_path / 'one.json'
     cli.main(['embeddings:show', '--id', str(record.id), '--output', str(output), *options])
@@ -89,6 +91,7 @@ def test_show_exports_without_loading_provider_or_storage(resources, capsys, tmp
 
 def test_show_missing_is_error(resources, capsys):
     _, backend, repository, _, _, _ = resources
+    repository = backend.embeddings.return_value
     repository.get.return_value = None
     with pytest.raises(SystemExit) as exc:
         cli.main(['embeddings:show', '--id', str(uuid4())])
@@ -100,6 +103,7 @@ def test_show_missing_is_error(resources, capsys):
 @pytest.mark.parametrize('found', [True, False])
 def test_delete_one_chunk_preserves_storage(resources, capsys, found):
     _, backend, repository, provider, storage, _ = resources
+    repository = backend.embeddings.return_value
     repository.delete.return_value = found
     identifier = uuid4()
     cli.main(['embeddings:delete', '--id', str(identifier)])
@@ -114,13 +118,13 @@ def test_delete_one_chunk_preserves_storage(resources, capsys, found):
 def test_create_requires_valid_application_id_before_io(resources, options):
     _, backend, _, provider, storage, source = resources
     with pytest.raises(SystemExit):
-        cli.main(['embeddings:create', str(source), *options])
+        cli.main(['documents:create', str(source), *options])
     backend.__enter__.assert_not_called()
     provider.embed.assert_not_called()
     storage.save.assert_not_called()
 
 
-@pytest.mark.parametrize('command', ['embed', 'ingest'])
+@pytest.mark.parametrize('command', ['embed', 'ingest', 'embeddings:create'])
 def test_removed_commands_are_rejected(command, capsys):
     with pytest.raises(SystemExit):
         cli.main([command])
@@ -142,7 +146,7 @@ def test_invalid_saved_settings_fail_before_provider_and_storage(resources):
         cli.main(create_args(resources))
     provider.embed.assert_not_called()
     storage.save.assert_not_called()
-    repository.create.assert_not_called()
+    repository.create_with_embeddings.assert_not_called()
     backend.__exit__.assert_called_once()
 
 
@@ -152,7 +156,7 @@ def test_bad_export_path_fails_before_persistence(resources, tmp_path, destinati
     output = {'same': source, 'missing_parent': tmp_path / 'missing' / 'out.json', 'directory': tmp_path}[destination]
     with pytest.raises(SystemExit):
         cli.main(create_args(resources) + ['--output', str(output)])
-    repository.create.assert_not_called()
+    repository.create_with_embeddings.assert_not_called()
     provider.embed.assert_not_called()
     backend.__enter__.assert_not_called()
     assert source.read_text() == 'abcdefghij'
@@ -169,8 +173,8 @@ def test_export_replace_failure_retains_persisted_records(resources, tmp_path, m
     assert exc.value.code == 2
     message = capsys.readouterr().err
     assert 'persisted' in message and 'export failed' in message
-    assert all(str(c.args[0].id) in message for c in repository.create.call_args_list)
-    assert repository.create.call_count == 2
+    assert str(repository.create_with_embeddings.call_args.args[0].id) in message
+    repository.create_with_embeddings.assert_called_once()
     repository.delete.assert_not_called()
     storage.delete.assert_not_called()
     assert output.read_text() == 'previous'
@@ -179,12 +183,12 @@ def test_export_replace_failure_retains_persisted_records(resources, tmp_path, m
 
 def test_ingestion_failure_compensates_and_does_not_export(resources, tmp_path):
     _, backend, repository, provider, storage, _ = resources
-    repository.create.side_effect = [None, ValueError('write failed')]
+    repository.create_with_embeddings.side_effect = ValueError('write failed')
     output = tmp_path / 'out.json'
     with pytest.raises(SystemExit):
         cli.main(create_args(resources) + ['--output', str(output)])
     assert not output.exists()
-    repository.delete.assert_called_once_with(repository.create.call_args_list[0].args[0].id)
+    repository.delete.assert_not_called()
     storage.delete.assert_called_once_with('stored.txt')
     provider.close.assert_called_once()
     backend.__exit__.assert_called_once()
@@ -234,8 +238,9 @@ def test_record_commands_require_valid_id(resources, command):
 
 
 def test_short_vector_shown_completely(resources, capsys):
-    _, _, repository, _, _, _ = resources
-    repository.get.return_value = Document(content='text', embedding=[1., 0.])
+    _, backend, _, _, _, _ = resources
+    repository = backend.embeddings.return_value
+    repository.get.return_value = Embedding(document_id=uuid4(), content='text', embedding=[1., 0.])
     cli.main(['embeddings:show', '--id', str(uuid4())])
     assert json.loads(capsys.readouterr().out)['embedding'] == [1., 0.]
 
@@ -244,6 +249,7 @@ def test_short_vector_shown_completely(resources, capsys):
 def test_record_failure_is_sanitized_and_releases_database(resources, capsys, command):
     from sqlalchemy.exc import SQLAlchemyError
     _, backend, repository, provider, storage, _ = resources
+    repository = backend.embeddings.return_value
     repository.get.side_effect = repository.delete.side_effect = SQLAlchemyError('private driver detail')
     with pytest.raises(SystemExit):
         cli.main([command, '--id', str(uuid4())])
@@ -298,7 +304,7 @@ def test_missing_application_does_not_embed_or_export(resources, tmp_path):
         cli.main(create_args(resources) + ['--output', str(output)])
     provider.embed.assert_not_called()
     storage.save.assert_not_called()
-    repository.create.assert_not_called()
+    repository.create_with_embeddings.assert_not_called()
     backend.__exit__.assert_called_once()
     assert not output.exists()
 
@@ -309,5 +315,38 @@ def test_invalid_batch_size_rejected_before_embedding(resources):
         cli.main(create_args(resources) + ['--batch_size', '0'])
     provider.embed.assert_not_called()
     storage.save.assert_not_called()
-    repository.create.assert_not_called()
+    repository.create_with_embeddings.assert_not_called()
     backend.__exit__.assert_called_once()
+
+
+def test_document_show_includes_ordered_summaries_and_no_vectors(resources, capsys):
+    value, backend, repository, provider, storage, _ = resources
+    parent = Document(application_id=value.id)
+    chunks = [Embedding(document_id=parent.id, content='later', embedding=[1.], chunk_index=1),
+              Embedding(document_id=parent.id, content='first', embedding=[1.], chunk_index=0)]
+    repository.details.return_value = DocumentDetails(parent, chunks)
+    cli.main(['documents:show', '--id', str(parent.id)])
+    result = json.loads(capsys.readouterr().out)
+    assert result['embedding_count'] == 2
+    assert [chunk['content'] for chunk in result['embeddings']] == ['first', 'later']
+    assert all('embedding' not in chunk for chunk in result['embeddings'])
+    provider.embed.assert_not_called()
+    storage.save.assert_not_called()
+
+
+def test_document_delete_only_calls_parent_repository(resources, capsys):
+    _, backend, repository, provider, storage, _ = resources
+    identifier = uuid4()
+    cli.main(['documents:delete', '--id', str(identifier)])
+    assert json.loads(capsys.readouterr().out) == {'deleted': True}
+    repository.delete.assert_called_once_with(identifier)
+    backend.embeddings.assert_not_called()
+    storage.delete.assert_not_called()
+
+
+def test_document_missing_is_error(resources, capsys):
+    _, _, repository, _, _, _ = resources
+    repository.details.return_value = None
+    with pytest.raises(SystemExit):
+        cli.main(['documents:show', '--id', str(uuid4())])
+    assert 'not found' in capsys.readouterr().err

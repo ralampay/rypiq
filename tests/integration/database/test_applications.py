@@ -7,28 +7,31 @@ from pgvector.sqlalchemy import Vector
 
 from app.models.application import Application
 from app.models.document import Document
+from app.models.embedding import Embedding
+from app.database.legacy_schema import build_metadata as historical_metadata
 from app.database.postgresql_connection import create_database
 
 
-def owned(application, vector):
-    return Document(content='content', embedding=vector, application_id=application.id,
+def owned(application, vector, document_id):
+    return Embedding(document_id=document_id, content='content', embedding=vector,
                     embedding_model=application.embedding_model, embedding_size=application.embedding_size,
                     provision_type=application.provision_type)
 
 
 def test_applications_and_mixed_size_search(backend):
     backend.create_database()
-    applications, documents = backend.applications(), backend.documents()
+    applications, documents = backend.applications(), backend.embeddings()
     first = applications.create(Application(name='first', embedding_model='a', embedding_size=2,
                                             data={'nested': [1, {'two': True}]}))
     second = applications.create(Application(name='second', embedding_model='b', embedding_size=3))
     assert asdict(applications.get(first.id)) == asdict(first)
     assert len(applications.list()) == 2
-    a, b = owned(first, [1., 0.]), owned(second, [1., 0., 0.])
+    parents = [backend.documents().create(Document(application_id=value.id)) for value in (first, second)]
+    a, b = owned(first, [1., 0.], parents[0].id), owned(second, [1., 0., 0.], parents[1].id)
     documents.create(a)
     documents.create(b)
-    assert [r.document.id for r in documents.search_by_vector([1., 0.], application_id=first.id)] == [a.id]
-    assert [r.document.id for r in documents.search_by_vector([1., 0., 0.], application_id=second.id)] == [b.id]
+    assert [r.embedding.id for r in documents.search_by_vector([1., 0.], application_id=first.id)] == [a.id]
+    assert [r.embedding.id for r in documents.search_by_vector([1., 0., 0.], application_id=second.id)] == [b.id]
     assert documents.search_by_vector([1., 0.], application_id=first.id,
                                       filters={'application_id': second.id}) == []
     with pytest.raises(ValueError, match='exactly 2'):
@@ -39,8 +42,7 @@ def test_applications_and_mixed_size_search(backend):
     a.embedding_model = 'wrong'
     with pytest.raises(ValueError, match='match'):
         documents.update(a)
-    missing = owned(first, [1., 0.])
-    missing.application_id = uuid4()
+    missing = owned(first, [1., 0.], uuid4())
     with pytest.raises(KeyError):
         documents.create(missing)
     table = backend.metadata.tables['public.applications']
@@ -55,7 +57,7 @@ def test_applications_and_mixed_size_search(backend):
 
 def create_legacy(backend):
     create_database(backend.maintenance_url, backend.url.database)
-    current = backend.metadata.tables['public.documents']
+    current = historical_metadata().tables['public.documents']
     metadata = sa.MetaData(schema='public')
     table = sa.Table('documents', metadata, *(
         sa.Column(c.name, Vector(3) if c.name == 'embedding' else c.type,
@@ -66,9 +68,11 @@ def create_legacy(backend):
         connection.exec_driver_sql('CREATE EXTENSION vector')
         metadata.create_all(connection)
         for model in ('a', 'a', 'b', ''):
-            value = asdict(Document(content=model, model_name=model, embedding=[1., 0., 0.],
-                                    metadata={'keep': [1, 2]}, storage_key='keep.txt'))
-            value = {key: value for key, value in value.items() if key in table.c}
+            from app.models.document import utc_now
+            value = dict(id=uuid4(), content=model, model_name=model, embedding=[1., 0., 0.],
+                         metadata={'keep': [1, 2]}, storage_key='keep.txt', filename='',
+                         content_type='', source='', source_id=None, chunk_index=0,
+                         created_at=utc_now(), updated_at=utc_now())
             connection.execute(table.insert().values(**value))
             originals.append(value)
     return originals
@@ -76,15 +80,19 @@ def create_legacy(backend):
 
 def test_legacy_upgrade_groups_models_and_preserves_values(backend):
     originals = create_legacy(backend)
-    assert backend.migrate() == {'tables_created': ['applications']}
+    assert backend.migrate() == {'tables_created': ['applications', 'embeddings']}
     assert backend.migrate() == {'tables_created': []}
     applications = backend.applications().list()
     assert len(applications) == 3
     assert len({a.api_key for a in applications}) == 3
     for original in originals:
-        loaded = asdict(backend.documents().get(original['id']))
-        assert {key: loaded[key] for key in original} == original
-        app = backend.applications().get(loaded['application_id'])
+        chunk = backend.embeddings().get(original['id'])
+        loaded = asdict(chunk)
+        parent = backend.documents().get(chunk.document_id)
+        assert {key: loaded[key] for key in original if key in loaded} == {
+            key: original[key] for key in original if key in loaded}
+        assert parent.storage_key == original['storage_key']
+        app = backend.applications().get(parent.application_id)
         assert app.embedding_model == original['model_name'] == loaded['embedding_model']
         assert app.embedding_size == loaded['embedding_size'] == 3
         assert loaded['provision_type'] == 'local'
@@ -105,7 +113,7 @@ def test_failed_upgrade_rolls_back_all_changes(backend):
 
 
 @pytest.mark.parametrize('change', [
-    'ALTER TABLE documents DROP CONSTRAINT ck_documents_vector_size',
+    'ALTER TABLE embeddings DROP CONSTRAINT ck_embeddings_vector_size',
     'ALTER TABLE documents DROP CONSTRAINT documents_application_id_fkey',
     'ALTER TABLE applications DROP CONSTRAINT applications_api_key_key',
     'ALTER TABLE applications DROP CONSTRAINT ck_applications_provider',
@@ -125,7 +133,7 @@ def test_reset_after_upgrade_retains_constraints(backend):
     assert backend.migrate() == {'tables_created': []}
     inspector = sa.inspect(backend.engine)
     assert inspector.get_foreign_keys('documents')
-    assert len(inspector.get_check_constraints('documents')) == 3
+    assert len(inspector.get_check_constraints('embeddings')) == 3
 
 
 def test_unrecognized_legacy_schema_is_not_upgraded(backend):
@@ -138,21 +146,22 @@ def test_unrecognized_legacy_schema_is_not_upgraded(backend):
 
 
 @pytest.mark.parametrize('name,definition', [
-    ('ck_documents_vector_size', 'CHECK (vector_dims(embedding) = embedding_size)'),
+    ('ck_embeddings_vector_size', 'CHECK (vector_dims(embedding) = embedding_size)'),
     ('documents_application_id_fkey',
      'FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE RESTRICT'),
 ])
 def test_unvalidated_constraints_are_rejected(backend, name, definition):
     backend.create_database()
+    table = 'embeddings' if name.startswith('ck_embeddings') else 'documents'
     with backend.engine.begin() as connection:
-        connection.exec_driver_sql(f'ALTER TABLE documents DROP CONSTRAINT {name}')
-        connection.exec_driver_sql(f'ALTER TABLE documents ADD CONSTRAINT {name} {definition} NOT VALID')
+        connection.exec_driver_sql(f'ALTER TABLE {table} DROP CONSTRAINT {name}')
+        connection.exec_driver_sql(f'ALTER TABLE {table} ADD CONSTRAINT {name} {definition} NOT VALID')
     with pytest.raises(ValueError, match='Incompatible'):
         backend.migrate()
     # Rejection must leave the database unchanged; an explicit validation repairs it.
     with backend.engine.begin() as connection:
         assert connection.execute(sa.text(
-            "SELECT convalidated FROM pg_constraint WHERE conrelid = 'public.documents'::regclass "
+            f"SELECT convalidated FROM pg_constraint WHERE conrelid = 'public.{table}'::regclass "
             'AND conname = :name'), {'name': name}).scalar() is False
-        connection.exec_driver_sql(f'ALTER TABLE documents VALIDATE CONSTRAINT {name}')
+        connection.exec_driver_sql(f'ALTER TABLE {table} VALIDATE CONSTRAINT {name}')
     assert backend.migrate() == {'tables_created': []}

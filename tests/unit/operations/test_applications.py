@@ -46,7 +46,7 @@ def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provide
     storage.save.return_value = Mock(key='stored', content_type='text/plain', checksum='checksum')
     documents = IngestDocument(path=str(source), chunk_size=10, stride=10, application=application,
                                embedding_provider=provider, repository=repository, storage=storage).execute()
-    assert documents[0].embedding_model == 'remote/model'
+    assert documents.embeddings[0].embedding_model == 'remote/model'
     provider.embed.assert_called_once_with(['hello'])
     provider.embed.reset_mock()
     SearchDocuments(query='query', application=application, embedding_provider=provider,

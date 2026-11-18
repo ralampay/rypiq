@@ -33,7 +33,7 @@ def test_remote_search_uses_application_endpoint_and_no_local_model(monkeypatch)
     database = MagicMock()
     database.__enter__.return_value = database
     database.applications.return_value.get.return_value = app
-    database.documents.return_value.search_by_vector.return_value = []
+    database.embeddings.return_value.search_by_vector.return_value = []
     monkeypatch.setattr(application, 'get_database', lambda: database)
     model = Mock(model_name='remote-model')
     model.embed.return_value = [[1., 0.]]
@@ -46,8 +46,8 @@ def test_remote_search_uses_application_endpoint_and_no_local_model(monkeypatch)
     assert application.search_documents(query='hello', application_id=app.id) == []
     assert captured[0].base_url == 'http://localhost:8001/v1'
     model.embed.assert_called_once_with(['hello'])
-    database.documents.return_value.search_by_vector.assert_called_once_with(
-        embedding=[1., 0.], application_id=app.id, limit=10)
+    database.embeddings.return_value.search_by_vector.assert_called_once_with(
+        embedding=[1., 0.], application_id=app.id, limit=10, metadata_filters=None)
 
 
 def test_standalone_embedding_uses_catalog_runtime_defaults(tmp_path, monkeypatch):
@@ -230,7 +230,7 @@ def test_legacy_ingestion_honors_saved_runtime_options(tmp_path, monkeypatch):
     source.write_text('hello')
     value = Application(name='a', embedding_model='weights.gguf', embedding_size=2,
                         data={'provider_config': {'embedding': {'context_size': 4096, 'gpu_layers': 2}}})
-    fake = Mock(return_value={'model': 'weights.gguf', 'chunks': []})
+    fake = Mock(return_value={'model': 'weights.gguf', 'chunks': [{'text': 'hello', 'embedding': [1., 0.], 'index': 0, 'start': 0, 'end': 5}]})
     monkeypatch.setattr(application, 'embed_text_file', fake)
     application.ingest_document(str(source), Mock(), Mock(), 10, 10, application=value)
     assert fake.call_args.kwargs['context_size'] == 4096
@@ -313,7 +313,7 @@ def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, mon
 
     value = Application(name='a', embedding_model='weights.gguf', inference_model='chat.gguf', embedding_size=2)
     configured_backend.applications.return_value.get.return_value = value
-    configured_backend.documents.return_value.search_by_vector.return_value = []
+    configured_backend.embeddings.return_value.search_by_vector.return_value = []
     source = tmp_path / 'input.txt'
     source.write_text('hello')
     storage = LocalStorage(root=tmp_path / 'objects')

@@ -38,17 +38,21 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument('content', help='Content to process')
     add_chunk_options(process, required=False)
 
-    embedding_create = commands.add_parser('embeddings:create', help='Store a file and persist its chunk embeddings')
-    embedding_create.add_argument('path', help='Path to a supported document')
-    embedding_create.add_argument('--application-id', type=UUID, required=True)
-    embedding_create.add_argument('--batch_size', type=int, default=1)
+    document_create = commands.add_parser('documents:create', help='Store a file and persist its chunk embeddings')
+    document_create.add_argument('path', help='Path to a supported document')
+    document_create.add_argument('--application-id', type=UUID, required=True)
+    document_create.add_argument('--batch_size', type=int, default=1)
     embedding_show = commands.add_parser('embeddings:show', help='Show one saved chunk embedding')
     embedding_show.add_argument('--id', type=UUID, required=True)
     embedding_delete = commands.add_parser('embeddings:delete', help='Delete one chunk; preserve stored files')
     embedding_delete.add_argument('--id', type=UUID, required=True)
-    for command in (embedding_create, embedding_show):
+    document_show = commands.add_parser('documents:show', help='Show a document and its chunk summaries')
+    document_show.add_argument('--id', type=UUID, required=True)
+    document_delete = commands.add_parser('documents:delete', help='Delete a document and its chunks; preserve stored files')
+    document_delete.add_argument('--id', type=UUID, required=True)
+    for command in (document_create, document_show, embedding_show):
         command.add_argument('--output', help='Also export complete JSON to this file')
-        command.add_argument('--embeddings-full', action='store_true', help='Display every vector value on stdout')
+    embedding_show.add_argument('--embeddings-full', action='store_true', help='Display every vector value on stdout')
 
     save = commands.add_parser('storage:save', help='Save a file to object storage')
     save.add_argument('path', help='Local path of the file to save')
@@ -59,6 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     search = commands.add_parser('search', help='Perform semantic vector search')
     search.add_argument('query')
     search.add_argument('--limit', type=int, default=5)
+    search.add_argument('--metadata-filter', type=json.loads, help='JSON object contained in chunk metadata')
     add_model_options(search, batching=False)
 
     search.add_argument('--application-id', type=UUID, required=True)

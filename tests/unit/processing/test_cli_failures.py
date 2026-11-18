@@ -28,6 +28,8 @@ def test_process_text_rejects_chunk_options(capsys):
 
 
 def test_embeddings_create_empty_result_has_empty_chunks(monkeypatch, capsys):
-    monkeypatch.setattr(cli_handlers.application, 'create_embeddings', lambda **kwargs: [])
-    cli.main(['embeddings:create', 'unused.txt', '--application-id', '00000000-0000-0000-0000-000000000001'])
-    assert json.loads(capsys.readouterr().out) == {'indexed_chunks': 0, 'storage_key': None, 'chunks': []}
+    from app.models.document import Document, DocumentDetails
+    monkeypatch.setattr(cli_handlers.application, 'create_document', lambda **kwargs: DocumentDetails(Document(), []))
+    cli.main(['documents:create', 'unused.txt', '--application-id', '00000000-0000-0000-0000-000000000001'])
+    result = json.loads(capsys.readouterr().out)
+    assert result['embedding_count'] == 0 and result['embeddings'] == []

@@ -8,6 +8,7 @@ from app.operations.documents import ingest as document
 from app.operations.embeddings import embed_file as embedding
 from app.operations.documents import search
 from app.models.document import Document
+from app.models.embedding import Embedding
 from app.models.application import Application
 
 APPLICATION = Application(name="test", embedding_model="fake.gguf", embedding_size=3)
@@ -35,7 +36,8 @@ def test_embedding_command_borrows_provider_and_defers_io(tmp_path):
 def test_search_command_returns_domain_values_without_output(capsys):
     model = provider()
     repository = Mock()
-    matches = [SearchResult(Document(content='found', embedding=[1., 0., 0.]), 0.)]
+    parent = Document(application_id=APPLICATION.id)
+    matches = [SearchResult(Embedding(document_id=parent.id, content='found', embedding=[1., 0., 0.]), parent, 0.)]
     repository.search_by_vector.return_value = matches
     command = search.SearchDocuments(application=APPLICATION, query='find', embedding_provider=model, repository=repository, limit=2)
     model.embed.assert_not_called()
@@ -56,10 +58,10 @@ def test_ingestion_command_uses_injected_dependencies(tmp_path):
                                       embedding_provider=model, chunk_size=4, stride=4)
     storage.save.assert_not_called()
     result = command.execute()
-    assert [item.content for item in result] == ['ABCD', 'EFGH']
-    assert all(item.model_name == 'fake.gguf' for item in result)
-    assert result[0].source_id == result[1].source_id
-    assert repository.create.call_count == 2
+    assert [item.content for item in result.embeddings] == ['ABCD', 'EFGH']
+    assert all(item.model_name == 'fake.gguf' for item in result.embeddings)
+    assert all(item.document_id == result.document.id for item in result.embeddings)
+    repository.create_with_embeddings.assert_called_once()
     model.close.assert_not_called()
     storage.close.assert_not_called()
 
@@ -71,16 +73,16 @@ def test_ingestion_preserves_failure_and_attempts_all_compensation(tmp_path):
     storage.save.return_value = SimpleNamespace(key='owned', content_type='text/plain', checksum='checksum')
     primary = RuntimeError('write failure')
     repository = Mock()
-    repository.create.side_effect = [None, None, primary]
-    repository.delete.side_effect = OSError('cleanup failure')
+    repository.create_with_embeddings.side_effect = primary
+    storage.delete.side_effect = OSError('cleanup failure')
     command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=repository,
                                       embedding_provider=provider(), chunk_size=4, stride=4)
     with pytest.raises(RuntimeError, match='write failure') as error:
         command.execute()
     assert error.value is primary
-    assert repository.delete.call_count == 2
+    repository.delete.assert_not_called()
     storage.delete.assert_called_once_with('owned')
-    assert len(primary.__notes__) == 2
+    assert len(primary.__notes__) == 1
 
 
 def test_embedding_validation_finishes_before_storage(tmp_path):
@@ -126,7 +128,7 @@ def test_ingestion_preserves_primary_when_storage_compensation_fails(tmp_path):
     storage.save.return_value = SimpleNamespace(key='owned', content_type='text/plain', checksum='checksum')
     storage.delete.side_effect = OSError('cleanup failure')
     repository = Mock()
-    repository.create.side_effect = ValueError('primary')
+    repository.create_with_embeddings.side_effect = ValueError('primary')
     with pytest.raises(ValueError, match='primary') as error:
         document.IngestDocument(application=APPLICATION, path=str(path), chunk_size=4, stride=4,
                                 embedding_provider=provider(), storage=storage,

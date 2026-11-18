@@ -86,7 +86,7 @@ rypiq applications:create --name 'Document search' \
   --chunk-size 500 --stride 400
 
 # Replace APPLICATION_UUID with the ID returned above:
-rypiq embeddings:create /path/to/document.pdf --application-id APPLICATION_UUID
+rypiq documents:create /path/to/document.pdf --application-id APPLICATION_UUID
 ```
 
 Model and chunking settings are saved on the application. Chunk size and stride
@@ -140,14 +140,14 @@ rypiq applications:create --name 'My application' \
   --embedding-model models/embeddinggemma-300m-Q4_0.gguf --embedding-size 768
 rypiq applications:list
 # Use the UUID returned by applications:create:
-rypiq embeddings:create samples/sample.txt --application-id APPLICATION_UUID
+rypiq documents:create samples/sample.txt --application-id APPLICATION_UUID
 rypiq search 'What is this document about?' --application-id APPLICATION_UUID \
   --model models/embeddinggemma-300m-Q4_0.gguf
 ```
 
 See [application commands](docs/DATABASE.md#application-commands) for configuration options and supported providers.
 
-`embeddings:create` uses the application's saved model and chunking settings. Search also uses the application model and supports a compatible local `--model` path override. The former `embed` and `ingest` CLI commands have been removed; standalone embedding remains available through the Python API.
+`documents:create` uses the application's saved model and chunking settings. Search also uses the application model and supports a compatible local `--model` path override. The former `embed` and `ingest` CLI commands have been removed; standalone embedding remains available through the Python API.
 
 `config/storage.yml` controls original-file storage. `STORAGE_ENV` defaults to `DATABASE_ENV`; `RYPIQ_STORAGE_CONFIG` overrides its configuration path. Storage paths remain independent of database reset.
 
@@ -295,82 +295,82 @@ Install the project dependencies to obtain the document readers; no separate ext
 
 ```sh
 rypiq process text-file report.pdf --chunk_size 500 --stride 400
-rypiq embeddings:create presentation.pptx --application-id APPLICATION_UUID
-rypiq embeddings:create workbook.xlsx --application-id APPLICATION_UUID
+rypiq documents:create presentation.pptx --application-id APPLICATION_UUID
+rypiq documents:create workbook.xlsx --application-id APPLICATION_UUID
 ```
 
 ### Embedding commands
 
+Documents represent original files; embeddings contain their searchable text chunks.
+
 | Command | Behavior |
 | --- | --- |
-| `rypiq embeddings:create PATH --application-id UUID` | Save the original file and persist an embedding record for each nonempty text chunk. |
-| `rypiq embeddings:show --id UUID` | Show one persisted chunk, including text, vector, application ID, and metadata. |
-| `rypiq embeddings:delete --id UUID` | Delete one chunk record; preserve other chunks and the stored original file. |
+| `rypiq documents:create PATH --application-id UUID` | Store the original file, generate embeddings, and persist one parent document with its chunks atomically. |
+| `rypiq documents:show --id UUID` | Show parent fields and ordered chunk summaries. |
+| `rypiq documents:delete --id UUID` | Delete the parent and all its embeddings; preserve the original file. |
+| `rypiq embeddings:show --id UUID` | Show one chunk with text, vector, model information, JSON metadata, and `document_id`. |
+| `rypiq embeddings:delete --id UUID` | Delete one chunk; preserve its parent, siblings, and original file. |
 
-Creation uses the application's saved model, provider, dimensions, preprocessing,
-and chunking settings. Configure chunking with `applications:create` or
-`applications:update --chunk-size N --stride N`; missing settings default to
-500 characters per chunk and a stride of 400. Creation does not accept model,
-runtime, or chunking overrides. It requires the configured database and object
-storage. Show and delete require only the database and a chunk UUID, with no
-`--application-id` or model loading.
+Creation uses saved application model/provider and chunking settings. It accepts
+`--batch_size N` (positive integer, default 1). Configure chunking with
+`applications:create` or `applications:update --chunk-size N --stride N`;
+missing settings default independently to 500/400. Creation does not accept
+per-command model or chunking overrides. Repeated creation makes new records.
 
-| Option | Applies to | Default or behavior |
-| --- | --- | --- |
-| `--application-id UUID` | Create | Required application configuration. |
-| `--batch_size N` | Create | `1`; positive number of chunks per embedding request. |
-| `--id UUID` | Show, delete | Required UUID of one chunk record, not its shared `source_id`. |
-| `--output PATH` | Create, show | Optional full JSON export in addition to console output. No file is written by default. |
-| `--embeddings-full` | Create, show | Print every vector value; otherwise vectors longer than six values show the first three, `"..."`, and last three. |
+Document create/show return the parent fields, `embedding_count`, and `embeddings`
+ordered by chunk index and ID. Each summary contains `id`, `chunk_index`, `content`,
+and `metadata`; vectors are available through `embeddings:show`.
+The parent stores file information and JSON metadata, not full extracted text.
 
-Creation prints `indexed_chunks`, `storage_key`, and `chunks`. Each chunk contains
-its `id`, `application_id`, text in `content`, numeric `embedding`, model information,
-source/storage details, metadata, and timestamps. Show prints one such record.
-Exports always contain full numeric vectors, regardless of console truncation.
-UUIDs are strings and timestamps use ISO format.
+Document create/show and embedding show accept `--output PATH` to export JSON.
+Only embedding show accepts `--embeddings-full`: console vectors longer than six
+values are abbreviated by default, while exports always contain complete vectors.
+Export failure after creation preserves records and files and reports the document
+ID. Retry with `documents:show --id UUID --output PATH`.
 
-The export parent directory must already exist. An existing export file is
-replaced atomically; the creation export cannot be the input document. Persistence
-finishes before export. If export fails, the command exits nonzero and reports
-that records were persisted, including chunk IDs for retrying with
-`embeddings:show --id UUID --output PATH`. Stored records and originals are retained.
-
-Show fails with a nonzero exit if the chunk does not exist. Delete returns
-`{"deleted": true}` or `{"deleted": false}` if already absent; both exit successfully.
-There is no `embeddings:update` command. Repeated creation creates new records.
-The old `embed` and `ingest` CLI names are no longer accepted. Python callers can
-still use `embed_file()` and `ingest_file()` with their existing arguments.
+Missing show targets exit nonzero. Delete returns `{"deleted": true}` or
+`{"deleted": false}` for an absent target. Deleting the final embedding leaves an
+empty parent document. These UUID-based operations are not authentication boundaries.
+There is no embedding update CLI. The former `embeddings:create`, `embed`, and
+`ingest` commands have been removed.
 
 ```sh
-rypiq applications:update APPLICATION_UUID --chunk-size 500 --stride 400
-rypiq embeddings:create samples/sample.txt --application-id APPLICATION_UUID
-rypiq embeddings:create report.pdf --application-id APPLICATION_UUID --output embeddings.json
-rypiq embeddings:show --id CHUNK_UUID --output chunk.json --embeddings-full
-rypiq embeddings:delete --id CHUNK_UUID
+rypiq documents:create report.pdf --application-id APPLICATION_UUID --output document.json
+rypiq documents:show --id DOCUMENT_UUID
+rypiq embeddings:show --id EMBEDDING_UUID --output chunk.json --embeddings-full
+rypiq embeddings:delete --id EMBEDDING_UUID
+rypiq documents:delete --id DOCUMENT_UUID
 ```
 
 ### Document ingestion and search
 
-Use `embeddings:create` above to ingest documents, then search within their application:
+Use `documents:create` above to ingest documents, then search within their application:
 
 ```sh
-rypiq embeddings:create samples/sample.txt --application-id APPLICATION_UUID
+rypiq documents:create samples/sample.txt --application-id APPLICATION_UUID
 rypiq search 'What is this document about?' --application-id APPLICATION_UUID --limit 5
 ```
 
-Search returns a JSON array with chunk document IDs, cosine distances, content,
-and storage keys. Lower distances are closer. Search does not require object storage.
+Search returns a JSON array of chunk matches. Lower cosine distances are closer.
+Search does not require object storage.
 
 | Search option | Default or requirement |
 | --- | --- |
 | `--application-id UUID` | Required; selects the application and its embedding model. |
 | `--limit N` | `5`; positive maximum number of matches. |
+| `--metadata-filter JSON` | Optional JSON object matched against chunk metadata using containment. |
 | `--model MODEL` | Unset: use the application's model. Local path or catalog alias override; the resolved filename must match the saved model. |
 | `--context_size N` | Saved application/catalog setting, otherwise `2048`; positive local runtime override. |
 | `--gpu_layers N` | Saved application/catalog setting, otherwise `0`; local runtime override, integer at least `-1`. |
 
 Model and runtime overrides are rejected for remote applications. These overrides
-apply to search, not to `embeddings:create`.
+apply to search, not to `documents:create`.
+
+Search returns individual chunk matches with `embedding_id`, `document_id`,
+`content`, `metadata`, parent `storage_key`, and cosine `distance`. Add
+`--metadata-filter '{"start": 0}'` to restrict matches to chunks whose JSONB metadata contains that object.
+Filters use JSONB containment before ranking and limiting. Search remains scoped
+to the required application ID and does not perform keyword search.
 
 ### Inference commands
 

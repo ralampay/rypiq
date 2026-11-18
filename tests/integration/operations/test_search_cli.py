@@ -6,7 +6,8 @@ from uuid import UUID, uuid4
 import pytest
 
 from app import cli, application
-from app.models.document import Document
+from app.models.document import Document, DocumentDetails
+from app.models.embedding import Embedding
 from app.models.search import SearchResult
 
 
@@ -24,10 +25,9 @@ def test_search_cli_uses_provider_and_repository(
             SearchResult(
                 document=Document(
                     id=uuid4(),
-                    content="RAG retrieved chunk",
-                    embedding=[0.1],
                     storage_key="documents/example.txt",
                 ),
+                embedding=Embedding(document_id=uuid4(), content="RAG retrieved chunk", embedding=[0.1]),
                 distance=0.23,
             )
         ]
@@ -60,7 +60,7 @@ def test_search_cli_uses_provider_and_repository(
     assert received['search'] == {
         'application_id': UUID(int=1),
         'query': 'What is RAG?', 'limit': 4, 'model_path': 'test.gguf',
-        'context_size': None, 'gpu_layers': None,
+        'context_size': None, 'gpu_layers': None, 'metadata_filters': None,
     }
 
 
@@ -74,17 +74,12 @@ def test_embeddings_create_cli_dispatch(
     def fake_ingest(**kwargs):
         received.update(kwargs)
 
-        return [
-            Document(
-                content="Test",
-                embedding=[0.1],
-                storage_key="documents/example.txt",
-            )
-        ]
+        parent = Document(storage_key='documents/example.txt')
+        return DocumentDetails(parent, [Embedding(document_id=parent.id, content='Test', embedding=[0.1])])
 
     monkeypatch.setattr(
         application,
-        "create_embeddings",
+        "create_document",
         fake_ingest,
     )
 
@@ -93,7 +88,7 @@ def test_embeddings_create_cli_dispatch(
         "argv",
         [
             "rypiq",
-            "embeddings:create",
+            "documents:create",
             "samples/sample.txt",
             "--application-id",
             "00000000-0000-0000-0000-000000000001",
@@ -104,6 +99,16 @@ def test_embeddings_create_cli_dispatch(
 
     output = json.loads(capsys.readouterr().out)
 
-    assert output["indexed_chunks"] == 1
+    assert output["embedding_count"] == 1
     assert received["batch_size"] == 1
     assert received["application_id"] == UUID(int=1)
+
+
+def test_search_cli_passes_json_metadata_filter(monkeypatch, capsys):
+    from unittest.mock import Mock
+    search = Mock(return_value=[])
+    monkeypatch.setattr(application, 'search_documents', search)
+    cli.main(['search', 'query', '--application-id', str(UUID(int=1)),
+              '--metadata-filter', '{"start":0}'])
+    assert search.call_args.kwargs['metadata_filters'] == {'start': 0}
+    assert json.loads(capsys.readouterr().out) == []

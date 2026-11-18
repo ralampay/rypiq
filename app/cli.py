@@ -51,21 +51,20 @@ def main(argv: Sequence[str] | None = None) -> None:
             if report.incomplete_count:
                 raise SystemExit(1)
             return
-        embedding_output = args.command in ('embeddings:create', 'embeddings:show')
+        exportable_output = args.command in ('documents:create', 'documents:show', 'embeddings:show')
         destination = None
-        if embedding_output and args.output:
-            destination = validate_export_path(args.output, source=args.path if args.command == 'embeddings:create' else None)
+        if exportable_output and args.output:
+            destination = validate_export_path(args.output, source=args.path if args.command == 'documents:create' else None)
         result = execute(args)
         if destination is not None:
             try:
                 write_json_export(destination, result)
             except (OSError, ValueError, TypeError):
-                if args.command == 'embeddings:create':
-                    ids = ', '.join(chunk['id'] for chunk in result['chunks'])
-                    raise RuntimeError(f'Embeddings persisted but JSON export failed. Chunk IDs: {ids}. '
-                                       'Retry export with embeddings:show --id ID --output PATH.') from None
-                raise RuntimeError('Embedding loaded but JSON export failed; check the destination.') from None
-        if embedding_output and not args.embeddings_full:
+                if args.command == 'documents:create':
+                    raise RuntimeError(f"Document persisted but JSON export failed. Document ID: {result['id']}. "
+                                       'Retry export with documents:show --id ID --output PATH.') from None
+                raise RuntimeError('Record loaded but JSON export failed; check the destination.') from None
+        if args.command == 'embeddings:show' and not args.embeddings_full:
             result = embedding_preview(result)
         if args.command == 'applications:list' and args.output == 'text':
             serialized = format_application_table(result)

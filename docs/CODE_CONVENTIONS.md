@@ -18,7 +18,7 @@ The reference is Cloudband's Rails template at commit `6c4b0f7db504bee0f560e1661
 | Read/write persistent domain records | Repository | `DocumentRepository` defines the contract; `PostgreSQLDocumentRepository` implements queries and serialization. |
 | Adapt an external capability | Provider/backend | Storage providers, embedding providers, and the PostgreSQL backend encapsulate their infrastructure details. |
 | Select a known handler by name | Explicit dispatch mapping | Database `METHODS` maps supported CLI commands to service methods. A registry selects behavior; it does not own business rules. |
-| Represent domain data | Dataclass | `Document`, `SearchResult`, and `StoredObject` carry data without opening connections or orchestrating operations. |
+| Represent domain data | Dataclass | `Document`, `Embedding`, `SearchResult`, and `StoredObject` carry data without opening connections or orchestrating operations. |
 | Assemble and release application resources | Composition context | `ApplicationContext` owns the database lifecycle; its consumers borrow the repository and storage. |
 
 Do not add a command bus, dependency-injection container, generic repository, or shared command superclass merely to make the architecture look uniform. Introduce an abstraction only when the requested behavior or demonstrated reuse warrants it.
@@ -114,7 +114,7 @@ import pytest
 
 
 def test_command_updates_the_loaded_document():
-    document = Document(content="existing text", source="old", embedding=[1.0, 0.0])
+    document = Document(source="old")
     repository = Mock(spec=DocumentRepository)
     repository.get.return_value = document
     repository.update.return_value = document
@@ -177,7 +177,7 @@ Keep factory functions in the relevant subsystem. They load or accept validated 
 
 Prefer explicit dependency injection at operation boundaries. A factory creates resources; the composition caller owns their lifetime. For example, use `with create_context() as context:` or `with get_database() as database:` and pass the needed repository/provider to the operation. Commands must not close caller-owned resources, and exception paths must release resources created by the composition layer.
 
-A command class does not create a transaction automatically. The current repository commits individual write methods; wrapping several such calls in a command does not make them atomic. When a new feature needs multiple database changes to commit together, define an explicit shared transaction contract at the repository/backend boundary and test rollback on the real database. Do not add an unused unit-of-work abstraction preemptively.
+A command class does not create a transaction automatically. Individual repository writes commit independently; document ingestion uses a dedicated `create_with_embeddings()` operation to commit its parent and children atomically. Wrapping arbitrary calls in a command does not make them atomic. When a new feature needs multiple database changes to commit together, define an explicit shared transaction contract at the repository/backend boundary and test rollback on the real database. Do not add an unused unit-of-work abstraction preemptively.
 
 Object storage and PostgreSQL do not share a transaction. Multi-system operations must specify sequencing, ownership, compensation, and what happens if cleanup itself fails. The existing ingestion operation is a reference for intended compensation, not proof of atomicity across systems. Test injected failures at the relevant boundaries; never delete another operation's resources while compensating.
 

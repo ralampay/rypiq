@@ -1,4 +1,4 @@
-"""One explicit, transactional upgrade from the original documents schema."""
+"""Explicit transactional upgrades from the two supported chunk schemas."""
 from dataclasses import asdict
 
 import sqlalchemy as sa
@@ -48,3 +48,48 @@ def upgrade_legacy(connection, metadata, columns):
             connection.execute(AddConstraint(constraint, isolate_from_table=False))
     for index in documents.indexes:
         connection.execute(CreateIndex(index))
+
+
+def split_documents(connection, metadata):
+    """Replace the recognized chunk table atomically, retaining every chunk ID."""
+    from uuid import uuid4
+    from app.database.legacy_schema import build_metadata
+    from app.database.schema import validate_table
+
+    historical = build_metadata()
+    for table in historical.sorted_tables:
+        validate_table(connection, table)
+    if sa.inspect(connection).has_table('embeddings', schema='public'):
+        raise ValueError('Incompatible schema: embeddings already exists beside legacy documents')
+    old = historical.tables['public.documents']
+    rows = connection.execute(sa.select(old)).mappings().all()
+    groups = {}
+    for row in rows:
+        key = (row['application_id'], row['source_id'] is None, row['source_id'] or row['id'],
+               row['storage_key'], row['filename'], row['content_type'], row['source'])
+        groups.setdefault(key, []).append(row)
+    # No CASCADE: unknown external dependencies must abort rather than be destroyed.
+    old.drop(connection)
+    metadata.create_all(connection)
+    documents = metadata.tables['public.documents']
+    embeddings = metadata.tables['public.embeddings']
+    for chunks in groups.values():
+        first = chunks[0]
+        document_id = uuid4()
+        shared = {key: value for key, value in first['metadata'].items()
+                  if key not in ('start', 'end', 'chunk_size', 'stride')
+                  and all(row['metadata'].get(key) == value for row in chunks)}
+        shared['source_id'] = str(first['source_id']) if first['source_id'] else None
+        connection.execute(documents.insert().values(
+            id=document_id, application_id=first['application_id'],
+            storage_key=first['storage_key'], filename=first['filename'],
+            content_type=first['content_type'], source=first['source'], metadata=shared,
+            created_at=min(row['created_at'] for row in chunks),
+            updated_at=max(row['updated_at'] for row in chunks)))
+        connection.execute(embeddings.insert(), [
+            {**{column.name: row[column.name] for column in embeddings.c if column.name != 'document_id'},
+             'document_id': document_id} for row in chunks])
+    if connection.scalar(sa.select(sa.func.count()).select_from(embeddings)) != len(rows):
+        raise ValueError('Embedding migration count mismatch')
+    if connection.scalar(sa.select(sa.func.count()).select_from(documents)) != len(groups):
+        raise ValueError('Document migration count mismatch')

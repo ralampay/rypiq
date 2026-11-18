@@ -18,7 +18,17 @@ def test_doctor_reports_absent_database_without_creating_it(backend):
     results = check_database(settings=backend.settings)
     assert len(results) == 1
     assert results[0].status == 'INVALID'
-    assert 'db:create' in results[0].detail
+    # psycopg/libpq may omit SQLSTATE on connection-establishment failures.
+    assert 'db:create' in results[0].detail or 'database existence' in results[0].detail
+    import sqlalchemy as sa
+    engine = sa.create_engine(backend.maintenance_url)
+    try:
+        with engine.connect() as connection:
+            assert not connection.execute(sa.text(
+                'SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = :name)'
+            ), {'name': backend.settings['database']}).scalar_one()
+    finally:
+        engine.dispose()
 
 
 def test_doctor_reports_uninitialized_database_without_migrating(backend):

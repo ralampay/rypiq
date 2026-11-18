@@ -4,7 +4,8 @@ from dataclasses import asdict, replace
 from app.providers.contracts import ChatMessage
 
 from app import application
-from app.models.document import Document
+from app.models.document import DocumentDetails
+from app.models.embedding import Embedding
 from app.database import commands as database_commands
 from app.operations.processing.content import process_content
 from app.operations.storage.list import list_files
@@ -41,26 +42,46 @@ def storage_list(args: Namespace) -> list[dict]:
 
 
 def search(args: Namespace) -> list[dict]:
-    matches = application.search_documents(application_id=args.application_id, query=args.query, limit=args.limit, **model_options(args))
-    return [dict(id=str(match.document.id), distance=match.distance,
-                 content=match.document.content, storage_key=match.document.storage_key)
+    matches = application.search_documents(application_id=args.application_id, query=args.query, limit=args.limit, metadata_filters=args.metadata_filter, **model_options(args))
+    return [dict(embedding_id=str(match.embedding.id), document_id=str(match.document.id),
+                 distance=match.distance, content=match.embedding.content,
+                 metadata=match.embedding.metadata, storage_key=match.document.storage_key)
             for match in matches]
 
 
-def embedding_json(value: Document) -> dict:
+def embedding_json(value: Embedding) -> dict:
     result = asdict(value)
-    for key in ('id', 'application_id', 'source_id'):
-        result[key] = str(result[key]) if result[key] is not None else None
+    for key in ('id', 'document_id'):
+        result[key] = str(result[key])
     for key in ('created_at', 'updated_at'):
         result[key] = result[key].isoformat()
     return result
 
 
-def embeddings_create(args: Namespace) -> dict:
-    documents = application.create_embeddings(application_id=args.application_id, path=args.path,
-                                              batch_size=args.batch_size)
-    return dict(indexed_chunks=len(documents), storage_key=documents[0].storage_key if documents else None,
-                chunks=[embedding_json(value) for value in documents])
+def document_json(value: DocumentDetails) -> dict:
+    result = asdict(value.document)
+    for key in ('id', 'application_id'):
+        result[key] = str(result[key]) if result[key] is not None else None
+    for key in ('created_at', 'updated_at'):
+        result[key] = result[key].isoformat()
+    result['embedding_count'] = len(value.embeddings)
+    result['embeddings'] = [dict(id=str(item.id), chunk_index=item.chunk_index,
+                                 content=item.content, metadata=item.metadata)
+                            for item in sorted(value.embeddings, key=lambda item: (item.chunk_index, item.id))]
+    return result
+
+
+def documents_create(args: Namespace) -> dict:
+    return document_json(application.create_document(application_id=args.application_id, path=args.path,
+                                                      batch_size=args.batch_size))
+
+
+def documents_show(args: Namespace) -> dict:
+    return document_json(application.show_document(document_id=args.id))
+
+
+def documents_delete(args: Namespace) -> dict:
+    return dict(deleted=application.delete_document(document_id=args.id))
 
 
 def embeddings_show(args: Namespace) -> dict:
@@ -140,7 +161,9 @@ HANDLERS = {
     'applications:list': application_list,
     'applications:show': application_show,
     'process': process,
-    'embeddings:create': embeddings_create,
+    'documents:create': documents_create,
+    'documents:show': documents_show,
+    'documents:delete': documents_delete,
     'embeddings:show': embeddings_show,
     'embeddings:delete': embeddings_delete,
     'storage:save': storage_save,

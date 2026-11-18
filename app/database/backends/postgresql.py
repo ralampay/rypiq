@@ -61,6 +61,10 @@ class PostgreSQLBackend(DatabaseBackend):
         from app.database.repositories.postgresql import PostgreSQLDocumentRepository
         return PostgreSQLDocumentRepository(self.engine, self.metadata.tables['public.documents'])
 
+    def embeddings(self):
+        from app.database.repositories.postgresql import PostgreSQLEmbeddingRepository
+        return PostgreSQLEmbeddingRepository(self.engine, self.metadata.tables['public.embeddings'])
+
     def applications(self) -> ApplicationRepository:
         from app.database.repositories.postgresql import PostgreSQLApplicationRepository
         return PostgreSQLApplicationRepository(self.engine, self.metadata.tables['public.applications'])

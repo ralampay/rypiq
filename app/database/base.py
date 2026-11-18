@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 from app.database.repositories.base import (
-    DocumentRepository, ApplicationRepository,
+    DocumentRepository, ApplicationRepository, EmbeddingRepository,
 )
 
 
@@ -13,6 +13,10 @@ class DatabaseBackend(ABC):
 
     @abstractmethod
     def documents(self) -> DocumentRepository:
+        raise NotImplementedError
+
+    @abstractmethod
+    def embeddings(self) -> EmbeddingRepository:
         raise NotImplementedError
 
     @abstractmethod

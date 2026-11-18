@@ -31,10 +31,10 @@ def test_installed_cli_lifecycle_outside_repository(invoke):
     assert missing.returncode != 0
     assert 'db:create' in missing.stderr
     for command, expected in [
-        ('db:create', {'created': True, 'tables_created': ['applications', 'documents']}),
+        ('db:create', {'created': True, 'tables_created': ['applications', 'documents', 'embeddings']}),
         ('db:create', {'created': False, 'tables_created': []}),
         ('db:migrate', {'tables_created': []}),
-        ('db:reset', {'dropped': True, 'created': True, 'tables_created': ['applications', 'documents']}),
+        ('db:reset', {'dropped': True, 'created': True, 'tables_created': ['applications', 'documents', 'embeddings']}),
         ('db:drop', {'dropped': True}),
         ('db:drop', {'dropped': False}),
     ]:
@@ -114,9 +114,7 @@ def test_application_rename_and_delete_preserve_related_data(invoke, backend):
     repository = backend.applications()
     value = repository.create(Application(name='Original', embedding_model='model', embedding_size=3))
     document = backend.documents().create(Document(
-        content='Keep this document', embedding=[1., 0., 0.], application_id=value.id,
-        embedding_model=value.embedding_model, embedding_size=3,
-        provision_type=value.provision_type))
+        filename='Keep this document', application_id=value.id))
 
     renamed = invoke('applications:update', str(value.id), '--name', 'Renamed')
     assert renamed.returncode == 0, renamed.stderr
@@ -153,15 +151,15 @@ def test_embedding_cli_lifecycle_with_remote_provider(invoke, backend, server, t
     source = tmp_path / 'source.txt'
     source.write_text('abcdefghij')
     output = tmp_path / 'created.json'
-    created = invoke('embeddings:create', str(source), '--application-id', str(value.id), '--output', str(output))
+    created = invoke('documents:create', str(source), '--application-id', str(value.id), '--output', str(output))
     assert created.returncode == 0, created.stderr
     result = json.loads(created.stdout)
     assert result == json.loads(output.read_text())
-    assert result['indexed_chunks'] == 2
-    first, second = result['chunks']
-    assert first['embedding'] == [1., 0.]
-    assert backend.documents().get(UUID(first['id'])).content == 'abcde'
-    assert backend.documents().get(UUID(second['id'])).content == 'fghij'
+    assert result['embedding_count'] == 2
+    first, second = result['embeddings']
+    assert 'embedding' not in first
+    assert backend.embeddings().get(UUID(first['id'])).content == 'abcde'
+    assert backend.embeddings().get(UUID(second['id'])).content == 'fghij'
     stored = tmp_path / 'objects' / result['storage_key']
     assert stored.read_text() == source.read_text()
 
@@ -171,13 +169,22 @@ def test_embedding_cli_lifecycle_with_remote_provider(invoke, backend, server, t
     single = tmp_path / 'shown.json'
     shown = invoke('embeddings:show', '--id', first['id'], '--output', str(single))
     assert shown.returncode == 0, shown.stderr
-    assert json.loads(shown.stdout) == json.loads(single.read_text()) == first
+    assert json.loads(shown.stdout) == json.loads(single.read_text())
+    assert json.loads(shown.stdout)['id'] == first['id']
+    assert json.loads(shown.stdout)['embedding'] == [1., 0.]
     requests_before = len(server['requests'])
     for expected in (True, False):
         deleted = invoke('embeddings:delete', '--id', first['id'])
         assert deleted.returncode == 0, deleted.stderr
         assert json.loads(deleted.stdout) == {'deleted': expected}
     assert invoke('embeddings:show', '--id', first['id']).returncode != 0
-    assert backend.documents().get(UUID(second['id'])) is not None
+    assert backend.embeddings().get(UUID(second['id'])) is not None
     assert stored.read_text() == source.read_text()
     assert len(server['requests']) == requests_before
+
+    shown_parent = invoke('documents:show', '--id', result['id'])
+    assert json.loads(shown_parent.stdout)['embedding_count'] == 1
+    deleted_parent = invoke('documents:delete', '--id', result['id'])
+    assert json.loads(deleted_parent.stdout) == {'deleted': True}
+    assert backend.embeddings().get(UUID(second['id'])) is None
+    assert stored.read_text() == source.read_text()

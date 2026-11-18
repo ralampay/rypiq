@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 from app.database.config import load_database_config
-from app.models.document import Document
+from app.models.embedding import Embedding
 
 
 def configure(tmp_path, monkeypatch, **overrides):
@@ -37,11 +37,11 @@ def test_configurable_dimensions(tmp_path, monkeypatch):
     assert load_database_config()['dimensions'] == 3
 
 
-def test_document_has_model_name_without_discovery_metadata():
-    names = {field.name for field in fields(Document)}
+def test_embedding_has_model_name_without_discovery_metadata():
+    names = {field.name for field in fields(Embedding)}
     assert 'model_name' in names
     assert 'embedding_model' in names
-    assert not hasattr(Document, '__persistence__')
+    assert not hasattr(Embedding, '__persistence__')
 
 
 @pytest.mark.parametrize('adapter', ['chromadb', 'pgvector', None])

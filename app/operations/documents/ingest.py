@@ -2,7 +2,7 @@ from app.models.application import Application, validate_application
 from app.providers.config import embedding_preprocessing, model_identity
 from app.database.repositories.base import DocumentRepository
 from app.storage.base import ObjectStorage
-from app.models.document import Document
+from app.models.document import DocumentDetails
 from app.embeddings.base import EmbeddingProvider
 from app.operations.embeddings.embed_file import EmbedTextFile
 from app.operations.documents.persist import persist_document
@@ -21,7 +21,7 @@ class IngestDocument:
         self.stride = stride
         self.batch_size = batch_size
 
-    def execute(self) -> list[Document]:
+    def execute(self) -> DocumentDetails:
         validate_application(self.application)
         if self.provider.model_name != model_identity(self.application.embedding_model, self.application.provision_type):
             raise ValueError("Embedding provider model must match the application")

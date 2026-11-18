@@ -25,15 +25,15 @@ def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path
     ]}
     monkeypatch.setattr(application_api, 'embed_text_file', lambda **kwargs: result)
     documents = application_api.ingest_document(str(source), storage, repository, 7, 7, application=application)
-    stored = repository.get(documents[0].id)
+    stored = backend.embeddings().get(documents.embeddings[0].id)
     assert stored.model_name == 'example.gguf'
-    assert (storage.root / stored.storage_key).read_text() == source.read_text()
+    assert (storage.root / documents.document.storage_key).read_text() == source.read_text()
     assert stored.metadata['start'] == 0
     before = [item.key for item in storage.list()]
     result['chunks'].append({'text': 'invalid', 'embedding': [1., 0.], 'index': 1, 'start': 7, 'end': 9})
     with pytest.raises(ValueError, match='Embedding'):
         application_api.ingest_document(str(source), storage, repository, 7, 7, application=application)
-    assert [item.id for item in repository.list()] == [stored.id]
+    assert [item.id for item in repository.list()] == [documents.document.id]
     assert [item.key for item in storage.list()] == before
 
 
@@ -59,13 +59,13 @@ def test_real_model_cli_ingestion_search_and_reset(backend, tmp_path):
     application = invoke('applications:create', '--name', 'test', '--embedding-model', str(model), '--chunk-size', '200', '--stride', '200')
     source = tmp_path / 'notes.txt'
     source.write_text('PostgreSQL stores structured data. Vector search retrieves related documents.')
-    ingested = invoke('embeddings:create', str(source), '--application-id', application['id'])
-    assert ingested['indexed_chunks'] == 1
+    ingested = invoke('documents:create', str(source), '--application-id', application['id'])
+    assert ingested['embedding_count'] == 1
     results = invoke('search', 'Which database stores structured data?', '--application-id', application['id'], '--model', str(model))
     assert results[0]['content'] == source.read_text()
     object_path = tmp_path / 'objects' / ingested['storage_key']
     with PostgreSQLBackend(settings) as initialized:
-        assert initialized.documents().list()[0].model_name == model.name
+        assert initialized.embeddings().list(document_id=initialized.documents().list()[0].id)[0].model_name == model.name
     assert invoke('db:reset')['created'] is True
     assert object_path.read_text() == source.read_text()
     with PostgreSQLBackend(settings) as initialized:

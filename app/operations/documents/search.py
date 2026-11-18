@@ -7,7 +7,7 @@ from app.models.embedding import validate_embedding
 from app.models.application import validate_application
 from app.providers.config import model_identity, embedding_preprocessing
 
-from app.database.repositories.base import DocumentRepository
+from app.database.repositories.base import EmbeddingRepository
 from app.embeddings.base import EmbeddingProvider
 from app.models.search import SearchResult
 
@@ -18,9 +18,10 @@ QUERY_PREFIX = "task: search result | query: "
 def _search(
     query: str,
     embedding_provider: EmbeddingProvider,
-    repository: DocumentRepository,
+    repository: EmbeddingRepository,
     application: Application,
     limit: int = 10,
+    metadata_filters: dict | None = None,
 ) -> list[SearchResult]:
 
     if not isinstance(query, str) or not query.strip():
@@ -35,6 +36,9 @@ def _search(
             "Limit must be a positive integer"
         )
 
+    if metadata_filters is not None:
+        from app.models.validation import validate_metadata
+        validate_metadata(metadata_filters)
     validate_application(application)
     if embedding_provider.model_name != model_identity(application.embedding_model, application.provision_type):
         raise ValueError('Embedding provider model must match the application')
@@ -65,12 +69,15 @@ def _search(
         embedding=vector,
         application_id=application.id,
         limit=limit,
+        metadata_filters=metadata_filters,
     )
 
 
 class SearchDocuments:
     def __init__(self, *, query: str, embedding_provider: EmbeddingProvider,
-                 repository: DocumentRepository, application: Application, limit: int = 10) -> None:
+                 repository: EmbeddingRepository, application: Application, limit: int = 10,
+                 metadata_filters: dict | None = None) -> None:
+        self.metadata_filters = metadata_filters
         self.application = application
         self.query = query
         self.embedding_provider = embedding_provider
@@ -78,12 +85,12 @@ class SearchDocuments:
         self.limit = limit
 
     def execute(self) -> list[SearchResult]:
-        return _search(self.query, self.embedding_provider, self.repository, self.application, self.limit)
+        return _search(self.query, self.embedding_provider, self.repository, self.application, self.limit, self.metadata_filters)
 
 
 def semantic_search(query: str, embedding_provider: EmbeddingProvider,
-                    repository: DocumentRepository, limit: int = 10, *,
-                    application: Application) -> list[SearchResult]:
+                    repository: EmbeddingRepository, limit: int = 10, *,
+                    application: Application, metadata_filters: dict | None = None) -> list[SearchResult]:
     """Compatibility wrapper; dependencies are still owned by the caller."""
     return SearchDocuments(query=query, embedding_provider=embedding_provider,
-                           repository=repository, application=application, limit=limit).execute()
+                           repository=repository, application=application, limit=limit, metadata_filters=metadata_filters).execute()
