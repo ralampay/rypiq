@@ -3,15 +3,19 @@ from uuid import UUID
 from app.database.repositories.application import ApplicationRepository
 from app.database.repositories.document import DocumentRepository
 from app.models.document import DocumentSummary
+from app.models.validation import validate_status
 from app.operations.applications.get import get_application
 
 
 def list_documents(*, application_id: UUID, repository: DocumentRepository,
-                   applications: ApplicationRepository) -> list[DocumentSummary]:
+                   applications: ApplicationRepository, status: str | None = None) -> list[DocumentSummary]:
+    if status is not None:
+        validate_status(status)
     get_application(application_id=application_id, repository=applications)
     summaries: list[DocumentSummary] = []
     while True:
-        page = repository.list_summaries(application_id=application_id, limit=100, offset=len(summaries))
+        page = repository.list_summaries(application_id=application_id, limit=100, offset=len(summaries),
+                                         **({"status": status} if status is not None else {}))
         summaries.extend(page)
         if len(page) < 100:
             return summaries

@@ -84,7 +84,7 @@ def split_documents(connection, metadata):
                   and all(row['metadata'].get(key) == value for row in chunks)}
         shared['source_id'] = str(first['source_id']) if first['source_id'] else None
         parents.append(dict(
-            id=document_id, application_id=first['application_id'],
+            id=document_id, application_id=first['application_id'], status='done',
             storage_key=first['storage_key'], filename=first['filename'],
             content_type=first['content_type'], source=first['source'], metadata=shared,
             created_at=min(row['created_at'] for row in chunks),
@@ -92,6 +92,11 @@ def split_documents(connection, metadata):
         children.extend([
             {**{column.name: row[column.name] for column in embeddings.c if column.name != 'document_id'},
              'document_id': document_id} for row in chunks])
+    from app.models.processing import SNAPSHOT_KEY, processing_settings
+    applications = {row['id']: Application(**row) for row in connection.execute(
+        sa.select(metadata.tables['public.applications'])).mappings()}
+    for parent in parents:
+        parent['metadata'][SNAPSHOT_KEY] = processing_settings(applications[parent['application_id']])
     assign_document_names(parents)
     if parents:
         connection.execute(documents.insert(), parents)
@@ -147,3 +152,37 @@ def add_document_names(connection, metadata):
     for constraint in documents.constraints:
         if constraint.name in ('uq_documents_application_name', 'ck_documents_name_nonempty'):
             connection.execute(AddConstraint(constraint, isolate_from_table=False))
+
+
+def add_document_status(connection, metadata):
+    """Upgrade the recognized parent schema, including a search settings snapshot."""
+    from app.database.pre_status_schema import build_metadata
+    from app.database.schema import validate_table
+    from app.models.processing import SNAPSHOT_KEY, processing_settings
+
+    if 'status' in {c['name'] for c in sa.inspect(connection).get_columns('documents', schema='public')}:
+        return
+    historical = build_metadata()
+    for table in historical.sorted_tables:
+        if sa.inspect(connection).has_table(table.name, schema='public'):
+            validate_table(connection, table)
+    connection.exec_driver_sql("ALTER TABLE public.documents ADD COLUMN status text NOT NULL DEFAULT 'pending'")
+    documents = metadata.tables['public.documents']
+    embeddings = metadata.tables['public.embeddings']
+    has_embeddings = sa.inspect(connection).has_table('embeddings', schema='public')
+    applications = metadata.tables['public.applications']
+    for row in connection.execute(sa.select(applications)).mappings():
+        snapshot = processing_settings(Application(**row))
+        owned = documents.c.application_id == row['id']
+        if has_embeddings:
+            connection.execute(documents.update().where(owned, sa.exists().where(
+                embeddings.c.document_id == documents.c.id)).values(status='done'))
+        for document in connection.execute(sa.select(documents).where(owned)).mappings():
+            connection.execute(documents.update().where(documents.c.id == document['id']).values(
+                metadata={**document['metadata'], SNAPSHOT_KEY: snapshot}))
+    for constraint in documents.constraints:
+        if constraint.name == 'ck_documents_status':
+            connection.execute(AddConstraint(constraint, isolate_from_table=False))
+    for index in documents.indexes:
+        if index.name == 'ix_documents_status':
+            connection.execute(CreateIndex(index))

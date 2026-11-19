@@ -13,7 +13,7 @@ from app.exceptions import (
     ValidationError,
 )
 from app.database.factory import get_database
-from app.models.application import Application, ApplicationSummary, validate_application, chunking_settings, with_chunking_options
+from app.models.application import Application, ApplicationSummary, validate_application, with_chunking_options
 from app.services.application import ApplicationService
 from app.providers.catalog import load_catalog, resolve_model, catalog_models
 from app.providers.config import ProviderSettings, validate_options, model_identity, embedding_preprocessing
@@ -35,7 +35,6 @@ from app.providers.contracts.embedding import EmbeddingProvider
 from app.embeddings.config import DEFAULT_MODEL
 from app.embeddings.factory import get_embedding_provider
 from app.models.document import DocumentDetails, DocumentSummary
-from app.models.validation import normalize_document_name
 from app.operations.documents.name import prepare_document_name
 from app.operations.documents.list import list_documents
 from app.models.embedding import Embedding
@@ -43,9 +42,9 @@ from app.operations.documents.get import get_document
 from app.operations.documents.delete import delete_document as delete_document_record
 from app.database.repositories.document import DocumentRepository
 from app.storage.base import ObjectStorage
-from app.operations.documents.persist import persist_document
 from app.models.search import SearchResult
-from app.operations.documents.ingest import IngestDocument
+from app.operations.documents.create import CreateDocument
+from app.operations.documents.process import ProcessDocument
 from app.operations.embeddings.embed_file import embed_chunks, prepare_text_file
 from app.operations.embeddings.get import get_embedding
 from app.operations.embeddings.delete import delete_embedding as delete_embedding_record
@@ -160,40 +159,57 @@ def ingest_file(*, name: str, path: str, chunk_size: int, stride: int, applicati
                 model_session: LocalModelSession | None = None) -> DocumentDetails:
     from app.storage.factory import get_storage
 
-    name = normalize_document_name(name)
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValidationError('batch_size must be a positive integer')
     with get_database() as database:
         application = get_application(application_id=application_id, repository=database.applications())
         name = prepare_document_name(name=name, application_id=application.id, repository=database.documents())
-        settings = _application_settings(application, 'embedding', model_path, context_size, gpu_layers)
-        with _open_configured_provider(settings, model_session, embedding_factory=get_embedding_provider) as provider:
-            return IngestDocument(name=name, path=path, chunk_size=chunk_size, stride=stride,
-                                  batch_size=batch_size, embedding_provider=provider,
-                                  application=application, storage=get_storage(),
-                                  repository=database.documents()).execute()
+        storage = get_storage()
+        created = CreateDocument(name=name, path=path, application=application,
+            repository=database.documents(), storage=storage).execute()
+        return ProcessDocument(document_id=created.document.id, repository=database.documents(),
+            applications=database.applications(), storage=storage, batch_size=batch_size,
+            chunk_size=chunk_size, stride=stride,
+            provider_scope=lambda current: _open_configured_provider(
+                _application_settings(current, 'embedding', model_path, context_size, gpu_layers),
+                model_session, embedding_factory=get_embedding_provider)).execute()
 
 
 def create_document(*, name: str, path: str, application_id: UUID, batch_size: int = 1) -> DocumentDetails:
     from app.storage.factory import get_storage
 
-    name = normalize_document_name(name)
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValidationError('batch_size must be a positive integer')
     with get_database() as database:
         application = get_application(application_id=application_id, repository=database.applications())
         name = prepare_document_name(name=name, application_id=application.id, repository=database.documents())
-        settings = _application_settings(application, 'embedding')
-        chunk_size, stride = chunking_settings(application.data)
-        if type(batch_size) is not int or batch_size < 1:
-            raise ValidationError('batch_size must be a positive integer')
-        with _open_configured_provider(settings, None, embedding_factory=get_embedding_provider) as provider:
-            return IngestDocument(name=name, path=path, chunk_size=chunk_size, stride=stride,
-                                  batch_size=batch_size, embedding_provider=provider,
-                                  application=application, storage=get_storage(),
-                                  repository=database.documents()).execute()
+        storage = get_storage()
+        created = CreateDocument(name=name, path=path, application=application,
+            repository=database.documents(), storage=storage).execute()
+        return ProcessDocument(document_id=created.document.id, repository=database.documents(),
+            applications=database.applications(), storage=storage, batch_size=batch_size,
+            provider_scope=lambda current: _open_configured_provider(
+                _application_settings(current, 'embedding'), None,
+                embedding_factory=get_embedding_provider)).execute()
 
 
-def enumerate_documents(*, application_id: UUID) -> list[DocumentSummary]:
+def process_document(*, document_id: UUID, batch_size: int = 1,
+                     model_session: LocalModelSession | None = None) -> DocumentDetails:
+    from app.storage.factory import get_storage
+
+    with get_database() as database:
+        return ProcessDocument(document_id=document_id, repository=database.documents(),
+            applications=database.applications(), storage=get_storage(), batch_size=batch_size,
+            provider_scope=lambda current: _open_configured_provider(
+                _application_settings(current, 'embedding'), model_session,
+                embedding_factory=get_embedding_provider)).execute()
+
+
+def enumerate_documents(*, application_id: UUID, status: str | None = None) -> list[DocumentSummary]:
     with get_database() as database:
         return list_documents(application_id=application_id, repository=database.documents(),
-                              applications=database.applications())
+                              applications=database.applications(),
+                              **({'status': status} if status is not None else {}))
 
 
 def show_document(*, document_id: UUID) -> DocumentDetails:
@@ -327,16 +343,26 @@ def embed_text_file(path: str, chunk_size: int, stride: int,
 def ingest_document(path: str, storage: ObjectStorage, repository: DocumentRepository,
                     chunk_size: int, stride: int, *, name: str, application: Application,
                     model_session: 'LocalModelSession | None' = None, **embedding_options) -> DocumentDetails:
-    """Compatibility entrypoint: compose embedding, then use the shared persistence operation."""
+    """Local compatibility entrypoint using the durable creation/processing lifecycle."""
     validate_application(application)
     if application.provision_type != "local":
         raise ValidationError("Use IngestDocument with an injected provider for remote embeddings")
-    name = prepare_document_name(name=name, application_id=application.id, repository=repository)
-    settings = settings_for(application, "embedding")
-    embedding_options.setdefault("context_size", settings.context_size)
-    embedding_options.setdefault("gpu_layers", settings.gpu_layers)
-    embedding_options.setdefault("model_path", application.embedding_model)
-    embedding_options.setdefault("document_prefix", embedding_preprocessing(application.data, application.provision_type, application.embedding_size)[0])
-    result = embed_text_file(path=path, chunk_size=chunk_size, stride=stride,
-                             model_session=model_session, **embedding_options)
-    return persist_document(path, storage, repository, chunk_size, stride, result, application, name=name)
+    batch_size = embedding_options.pop('batch_size', 1)
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValidationError('batch_size must be a positive integer')
+    prefix = embedding_options.pop('document_prefix', None)
+    expected_prefix = embedding_preprocessing(application.data, application.provision_type, application.embedding_size)[0]
+    if prefix is not None and prefix != expected_prefix:
+        raise ValidationError('Document prefix must match the application configuration')
+    @contextmanager
+    def provider_scope(current):
+        settings = settings_for(current, 'embedding')
+        options = dict(model_path=settings.model, context_size=settings.context_size, gpu_layers=settings.gpu_layers)
+        options.update(embedding_options)
+        with open_embedding_provider(model_session=model_session, **options) as provider:
+            yield provider
+    created = CreateDocument(name=name, path=path, application=application,
+        repository=repository, storage=storage).execute()
+    return ProcessDocument(document_id=created.document.id, repository=repository,
+        application=application, storage=storage, provider_scope=provider_scope,
+        batch_size=batch_size, chunk_size=chunk_size, stride=stride).execute()

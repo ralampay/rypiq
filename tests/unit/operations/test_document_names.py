@@ -155,4 +155,4 @@ def test_empty_document_list_has_headers(monkeypatch, capsys):
     from app import application
     monkeypatch.setattr(application, 'enumerate_documents', lambda **kwargs: [])
     cli.main(['documents:list', '--application-id', str(uuid4())])
-    assert capsys.readouterr().out == f'{"ID":<36}  NAME  EMBEDDINGS\n'
+    assert capsys.readouterr().out == f'{"ID":<36}  NAME  STATUS      EMBEDDINGS\n'

@@ -72,8 +72,8 @@ def test_ingestion_application_releases_context_after_command_failure(monkeypatc
     monkeypatch.setattr(application, 'get_embedding_provider', lambda **kwargs: model)
     command = Mock()
     command.execute.side_effect = ValueError('invalid input')
-    monkeypatch.setattr(application, 'IngestDocument', lambda **kwargs: command)
+    monkeypatch.setattr(application, 'CreateDocument', lambda **kwargs: command)
     with pytest.raises(ValueError, match='invalid input'):
         application.ingest_file(application_id=APPLICATION.id, path='unused', chunk_size=1, stride=1, name='test document')
     backend.__exit__.assert_called_once()
-    model.close.assert_called_once()
+    model.close.assert_not_called()

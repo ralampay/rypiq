@@ -10,6 +10,7 @@ from app.exceptions import (
     ProviderResponseError,
     ValidationError,
 )
+from app.models.processing import embedding_settings
 from app.models.application import Application
 from app.models.embedding import validate_embedding
 from app.models.application import validate_application
@@ -82,6 +83,7 @@ def _search(
         application_id=application.id,
         limit=limit,
         metadata_filters=metadata_filters,
+        expected_settings=embedding_settings(application),
     )
 
 

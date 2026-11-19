@@ -43,18 +43,22 @@ def build_parser() -> argparse.ArgumentParser:
     document_create.add_argument('path', help='Path to a supported document')
     document_create.add_argument('--application-id', type=UUID, required=True)
     document_create.add_argument('--batch_size', type=int, default=1)
+    document_process = commands.add_parser('documents:process', help='Reprocess a stored document using current application settings')
+    document_process.add_argument('--document-id', type=UUID, required=True)
+    document_process.add_argument('--batch_size', type=int, default=1)
     embedding_show = commands.add_parser('embeddings:show', help='Show one saved chunk embedding')
     embedding_show.add_argument('--id', type=UUID, required=True)
     embedding_delete = commands.add_parser('embeddings:delete', help='Delete one chunk; preserve stored files')
     embedding_delete.add_argument('--id', type=UUID, required=True)
     document_list = commands.add_parser('documents:list', help='List every document name and embedding count in an application')
     document_list.add_argument('--application-id', type=UUID, required=True)
+    document_list.add_argument('--status', choices=['pending', 'processing', 'error', 'done'])
     document_list.add_argument('--output', choices=['text', 'json'], default='text')
     document_show = commands.add_parser('documents:show', help='Show a document and its chunk summaries')
     document_show.add_argument('--id', type=UUID, required=True)
     document_delete = commands.add_parser('documents:delete', help='Delete a document and its chunks; preserve stored files')
     document_delete.add_argument('--id', type=UUID, required=True)
-    for command in (document_create, document_show, embedding_show):
+    for command in (document_create, document_process, document_show, embedding_show):
         command.add_argument('--output', help='Also export complete JSON to this file')
     embedding_show.add_argument('--embeddings-full', action='store_true', help='Display every vector value on stdout')
 

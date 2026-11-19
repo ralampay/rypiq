@@ -25,6 +25,7 @@ def normalize_document_name(name: str) -> str:
 
 
 def validate_document(document: 'Document') -> None:
+    validate_status(document.status)
     document.name = normalize_document_name(document.name)
     if not isinstance(document.id, UUID) or not isinstance(document.application_id, UUID):
         raise InvalidIdentifierError('Document requires UUID identity and application ID')
@@ -62,3 +63,9 @@ def validate_pagination(limit: int, offset: int) -> None:
     validate_limit(limit)
     if type(offset) is not int or offset < 0:
         raise ValidationError('Offset must be a nonnegative integer')
+
+
+def validate_status(status: str) -> None:
+    from app.models.document import DOCUMENT_STATUSES
+    if status not in DOCUMENT_STATUSES:
+        raise ValidationError('Document status must be pending, processing, error, or done')

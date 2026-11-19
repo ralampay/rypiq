@@ -13,28 +13,29 @@ from app import application as application_api
 from app.storage.providers.local import LocalStorage
 
 
-def test_ingestion_persists_model_name_and_compensates_failure(backend, tmp_path, monkeypatch):
+def test_ingestion_persists_model_name_and_retains_failed_original(backend, tmp_path, monkeypatch):
     backend.create_database()
     application = backend.applications().create(Application(name="test", embedding_model="example.gguf", embedding_size=3))
     repository = backend.documents()
     storage = LocalStorage(tmp_path / 'objects')
     source = tmp_path / 'source.txt'
     source.write_text('example content')
-    result = {'model': 'example.gguf', 'chunks': [
-        {'text': 'example', 'embedding': [1., 0., 0.], 'index': 0, 'start': 0, 'end': 7},
-    ]}
-    monkeypatch.setattr(application_api, 'embed_text_file', lambda **kwargs: result)
+    from unittest.mock import Mock
+    model = Mock(model_name='example.gguf')
+    model.embed.side_effect = lambda texts: [[1., 0., 0.] for text in texts]
+    monkeypatch.setattr(application_api, 'get_embedding_provider', lambda **kwargs: model)
     documents = application_api.ingest_document(str(source), storage, repository, 7, 7, application=application, name='test document')
     stored = backend.embeddings().get(documents.embeddings[0].id)
     assert stored.model_name == 'example.gguf'
     assert (storage.root / documents.document.storage_key).read_text() == source.read_text()
     assert stored.metadata['start'] == 0
     before = [item.key for item in storage.list()]
-    result['chunks'].append({'text': 'invalid', 'embedding': [1., 0.], 'index': 1, 'start': 7, 'end': 9})
+    model.embed.side_effect = lambda texts: [[1., 0.] for text in texts]
     with pytest.raises(ValueError, match='Embedding'):
         application_api.ingest_document(str(source), storage, repository, 7, 7, application=application, name='invalid document')
-    assert [item.id for item in repository.list()] == [documents.document.id]
-    assert [item.key for item in storage.list()] == before
+    assert len(repository.list()) == 2
+    assert repository.list(status='error')[0].name == 'invalid document'
+    assert len(storage.list()) == len(before) + 1
 
 
 def test_real_model_cli_ingestion_search_and_reset(backend, tmp_path):

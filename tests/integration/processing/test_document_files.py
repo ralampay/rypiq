@@ -122,7 +122,27 @@ def test_cli_process(document_file, capsys):
     assert json.loads(capsys.readouterr().out)['chunks'][0]['text'] == expected
 
 
-def test_embedding_and_ingestion(document_file):
+@pytest.fixture
+def document_resources(tmp_path):
+    from contextlib import nullcontext
+    from dataclasses import replace
+    from app.models.document import DocumentDetails
+    from app.storage.providers.local import LocalStorage
+    repository = Mock(name_exists=Mock(return_value=False))
+    records = {}
+    def save(document):
+        records[document.id] = replace(document)
+        return replace(document)
+    def status(identifier, value):
+        return save(replace(records[identifier], status=value))
+    repository.create.side_effect = repository.update.side_effect = save
+    repository.set_status.side_effect = status
+    repository.processing_lock.side_effect = lambda identifier: nullcontext()
+    repository.replace_embeddings.side_effect = lambda document, chunks, **kwargs: DocumentDetails(status(document.id, 'done'), chunks)
+    return repository, Mock(wraps=LocalStorage(tmp_path / 'objects'))
+
+
+def test_embedding_and_ingestion(document_file, document_resources):
     path, expected = document_file
     original = path.read_bytes()
     provider = Mock(model_name='fake.gguf')
@@ -132,9 +152,7 @@ def test_embedding_and_ingestion(document_file):
     assert result['chunks'][0]['text'] == expected
     provider.embed.assert_called_with(['title: none | text: ' + expected])
     provider.reset_mock()
-    storage = Mock()
-    storage.save.return_value = SimpleNamespace(key='owned', content_type='test/type', checksum='checksum')
-    repository = Mock(name_exists=Mock(return_value=False))
+    repository, storage = document_resources
     docs = IngestDocument(path=str(path), chunk_size=1000, stride=1000,
                           application=Application(name='test', embedding_model='fake.gguf', embedding_size=3),
                           embedding_provider=provider, storage=storage, repository=repository, name='test document').execute()
@@ -146,10 +164,11 @@ def test_embedding_and_ingestion(document_file):
 
 
 @pytest.mark.parametrize('suffix', ['pdf', 'docx', 'xlsx', 'xlsm', 'xls', 'pptx'])
-def test_corrupt_file_fails_before_embedding_or_writes(tmp_path, suffix):
+def test_corrupt_file_retains_original_without_embeddings(tmp_path, suffix, document_resources):
     path = tmp_path / ('bad.' + suffix)
     path.write_bytes(b'not a document')
-    factory, storage, repository, provider = Mock(), Mock(), Mock(name_exists=Mock(return_value=False)), Mock(model_name='fake.gguf')
+    factory, provider = Mock(), Mock(model_name='fake.gguf')
+    repository, storage = document_resources
     with pytest.raises(ValueError, match='Cannot extract'):
         embed_file(path=str(path), chunk_size=10, stride=10, provider_factory=factory)
     factory.assert_not_called()
@@ -158,8 +177,10 @@ def test_corrupt_file_fails_before_embedding_or_writes(tmp_path, suffix):
                        application=Application(name='test', embedding_model='fake.gguf', embedding_size=3),
                        embedding_provider=provider, storage=storage, repository=repository, name='test document').execute()
     provider.embed.assert_not_called()
-    storage.save.assert_not_called()
-    repository.create_with_embeddings.assert_not_called()
+    storage.save.assert_called_once()
+    repository.replace_embeddings.assert_not_called()
+    assert repository.set_status.call_args.args[1] == 'error'
+    assert len(storage.list()) == 1
 
 
 @pytest.mark.parametrize('encrypted', [False, True])

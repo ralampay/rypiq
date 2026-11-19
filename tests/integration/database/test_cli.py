@@ -226,7 +226,7 @@ def test_document_listing_all_names_and_counts(invoke, backend):
                                          embedding_model='m', embedding_size=2))
     parents.sort(key=lambda document: document.id)
     expected = [dict(id=str(document.id), name=document.name,
-                     embedding_count=1 if document.name == 'Name 0' else 0) for document in parents]
+                     embedding_count=1 if document.name == 'Name 0' else 0, status='pending') for document in parents]
     listed = invoke('documents:list', '--application-id', str(application.id), '--output', 'json')
     assert listed.returncode == 0, listed.stderr
     assert json.loads(listed.stdout) == expected

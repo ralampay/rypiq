@@ -63,7 +63,7 @@ def test_concurrent_creations_have_one_winner(backend, application):
     assert len(backend.documents().list(application_id=application.id)) == 1
 
 
-def test_name_race_compensates_storage_and_rolls_back_chunks(backend, application, tmp_path):
+def test_name_is_reserved_before_embedding_and_failure_retains_original(backend, application, tmp_path):
     from app.operations.documents.ingest import IngestDocument
     from app.storage.providers.local import LocalStorage
 
@@ -74,16 +74,17 @@ def test_name_race_compensates_storage_and_rolls_back_chunks(backend, applicatio
     class RacingProvider:
         model_name = 'm'
         def embed(self, texts):
-            # Another ingestion wins after the preflight but before our atomic write.
+            # The pending parent already reserves the name before embedding begins.
             repository.create(Document(name='same', application_id=application.id))
             return [[1., 0.]]
     with pytest.raises(ValueError, match='already exists'):
         IngestDocument(name='same', path=str(source), application=application,
                        chunk_size=10, stride=10, embedding_provider=RacingProvider(),
                        repository=repository, storage=storage).execute()
-    assert storage.list() == []
+    assert len(storage.list()) == 1
     parents = repository.list(application_id=application.id)
     assert len(parents) == 1
+    assert parents[0].status == 'error'
     assert backend.embeddings().list(document_id=parents[0].id) == []
 
 
@@ -132,7 +133,7 @@ def seed_unnamed(backend):
         old.create_all(connection)
         connection.execute(old.tables['public.applications'].insert().values(**asdict(application)))
         connection.execute(old.tables['public.documents'].insert(), [
-            {key: value for key, value in asdict(document).items() if key != 'name'} for document in documents])
+            {key: value for key, value in asdict(document).items() if key not in ('name', 'status')} for document in documents])
         chunk = Embedding(document_id=documents[0].id, content='keep', embedding=[1., 0.],
                           embedding_model='m', embedding_size=2)
         connection.execute(old.tables['public.embeddings'].insert().values(**asdict(chunk)))
@@ -148,7 +149,9 @@ def test_name_migration_preserves_values_and_handles_generated_collisions(backen
         f'Document {UUID(int=3)} (2)', f'same ({UUID(int=1)})',
         f'Document {UUID(int=3)}', 'unique']
     for before, after in zip(originals, loaded, strict=True):
-        assert asdict(replace(after, name=before.name)) == asdict(before)
+        assert asdict(replace(after, name=before.name, status=before.status, metadata=before.metadata)) == asdict(before)
+        assert after.metadata['keep'] is True
+        assert after.status == ('done' if after.id == chunk.document_id else 'pending')
     assert backend.embeddings().get(chunk.id) == chunk
     assert backend.migrate() == {'tables_created': []}
     assert backend.documents().list(application_id=application.id) == loaded

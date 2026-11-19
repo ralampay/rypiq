@@ -13,7 +13,6 @@ from app.exceptions import (
 from app.database.repositories.application import ApplicationRepository
 from app.models.validation import validate_pagination
 from app.models.application import Application, ApplicationSummary, validate_application
-from app.providers.config import embedding_preprocessing
 
 
 class PostgreSQLApplicationRepository(ApplicationRepository):
@@ -62,11 +61,6 @@ class PostgreSQLApplicationRepository(ApplicationRepository):
                 raise ApplicationNotFoundError(application.id, resource_id=application.id)
             if application.api_key != original['api_key'] or application.created_at != original['created_at']:
                 raise ImmutableFieldError('Application API key and creation time are immutable')
-            changed_embedding = any(getattr(application, name) != original[name] for name in (
-                'embedding_model', 'embedding_size', 'provision_type'))
-            changed_embedding |= embedding_preprocessing(application.data, application.provision_type, application.embedding_size) != embedding_preprocessing(original['data'], original['provision_type'], original['embedding_size'])
-            if changed_embedding and self._has_documents(connection, application.id):
-                raise ApplicationInUseError('Cannot change embedding settings while application has documents')
             values = asdict(application)
             values['updated_at'] = datetime.now(timezone.utc)
             connection.execute(self.table.update().where(self.table.c.id == application.id).values(**values))

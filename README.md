@@ -272,7 +272,7 @@ Example JSON output:
 
 `--chunk-size` and `--stride` are saved as `data.chunking.chunk_size` and `data.chunking.stride`. Explicit flags override those values in `--data`; without `--data`, updates preserve other application data. Missing settings default independently to 500 and 400. Chunking changes affect future uploads and are allowed when documents already exist.
 
-Embedding model, size, provider, and embedding preprocessing changes are rejected when the application already has documents. See [database documentation](docs/DATABASE.md) for persistence rules.
+Embedding model, size, provider, and embedding preprocessing settings can change while documents exist. Reprocess each document to regenerate its embeddings; search excludes embeddings incompatible with the current settings. See [database documentation](docs/DATABASE.md) for persistence rules.
 
 | List option | Default | Meaning |
 | --- | --- | --- |
@@ -340,8 +340,9 @@ Documents represent original files; embeddings contain their searchable text chu
 
 | Command | Behavior |
 | --- | --- |
-| `rypiq documents:create PATH --application-id UUID --name NAME` | Store the original file, generate embeddings, and persist one parent document with its chunks atomically. |
-| `rypiq documents:list --application-id UUID [--output FORMAT]` | List all document IDs, names, and embedding counts. |
+| `rypiq documents:create PATH --application-id UUID --name NAME` | Insert a pending document, store its original, then process it synchronously. |
+| `rypiq documents:process --document-id UUID` | Reprocess the stored original using current application settings. |
+| `rypiq documents:list --application-id UUID [--status STATUS] [--output FORMAT]` | List document IDs, names, statuses, and embedding counts. |
 | `rypiq documents:show --id UUID` | Show parent fields and ordered chunk summaries. |
 | `rypiq documents:delete --id UUID` | Delete the parent and all its embeddings; preserve the original file. |
 | `rypiq embeddings:show --id UUID` | Show one chunk with text, vector, model information, JSON metadata, and `document_id`. |
@@ -353,8 +354,8 @@ Reusing a name in another application is allowed. Duplicate creation fails befor
 embedding where possible; a database constraint also handles concurrent requests.
 
 `documents:list --application-id UUID` lists every document in UUID order, with
-`ID`, `NAME`, and `EMBEDDINGS` columns. Use `--output json` for an array of
-`{id, name, embedding_count}` records. Counts reflect currently stored embeddings,
+`ID`, `NAME`, `STATUS`, and `EMBEDDINGS` columns. Use `--output json` for an array of
+`{id, name, status, embedding_count}` records. Counts reflect currently stored embeddings,
 including zero for empty parents. Empty applications produce headers or `[]`;
 a missing application fails. There are no CLI pagination options.
 
@@ -364,16 +365,45 @@ Creation uses saved application model/provider and chunking settings. It accepts
 missing settings default independently to 500/400. Creation does not accept
 per-command model or chunking overrides. Use a distinct name when creating another document in the same application.
 
-Document create/show return the parent fields, `embedding_count`, and `embeddings`
+Document create/process/show return the parent fields (including `status`), `embedding_count`, and `embeddings`
 ordered by chunk index and ID. Each summary contains `id`, `chunk_index`, `content`,
 and `metadata`; vectors are available through `embeddings:show`.
 The parent stores file information and JSON metadata, not full extracted text.
 
-Document create/show and embedding show accept `--output PATH` to export JSON.
+Document create/process/show and embedding show accept `--output PATH` to export JSON.
 Only embedding show accepts `--embeddings-full`: console vectors longer than six
 values are abbreviated by default, while exports always contain complete vectors.
 Export failure after creation preserves records and files and reports the document
 ID. Retry with `documents:show --id UUID --output PATH`.
+
+Documents progress through `pending` → `processing` → `done` or `error`.
+Creation inserts the pending parent before storing or processing the file. Processing
+failures retain the parent and stored original for retry; diagnostics include its UUID.
+A storage failure before attachment can leave an error document without an original;
+that record must be deleted and uploaded again. `documents:process` never falls back
+to the old upload path.
+
+```sh
+rypiq documents:list --application-id APPLICATION_UUID --status error --output json
+rypiq documents:process --document-id DOCUMENT_UUID --batch_size 8 --output processed.json
+```
+
+Reprocessing preserves document identity and replaces all embeddings atomically on
+success. Previous embeddings remain on failure and stay searchable when compatible
+with current application settings. A configuration change does not automatically
+process documents or change their status. Search excludes incompatible model,
+dimension, provider, or preprocessing snapshots; chunking changes alone do not hide
+old results. Concurrent attempts for the same document fail with a conflict. After
+a crashed process releases its database connection, a new invocation can retry a
+stranded `processing` record. Application settings changed during processing require
+a retry. Normal retries work from any status.
+
+Run `rypiq db:migrate` before using these commands against an existing database.
+It marks existing documents with embeddings as `done`, and empty parents as `pending`.
+The configured Python API exposes `process_document(document_id=...)` and
+`enumerate_documents(application_id=..., status='error')`. Injected `CreateDocument`
+creates a pending stored original; `ProcessDocument` handles processing separately
+for future service or worker integrations. No worker is started automatically.
 
 Missing show targets exit nonzero. Delete returns `{"deleted": true}` or
 `{"deleted": false}` for an absent target. Deleting the final embedding leaves an

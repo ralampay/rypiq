@@ -28,6 +28,8 @@ def build_metadata(dimensions=768):
     )
     sa.Table(
         'documents', metadata,
+        sa.Column('status', sa.Text(), nullable=False, server_default='pending', index=True),
+        sa.CheckConstraint("status IN ('pending', 'processing', 'error', 'done')", name='ck_documents_status'),
         sa.Column('name', sa.Text(), nullable=False),
         sa.Column('id', UUID(as_uuid=True), primary_key=True),
         sa.Column('application_id', UUID(as_uuid=True),
@@ -138,6 +140,9 @@ def initialize_schema(engine, metadata):
             elif 'name' not in columns:
                 from app.database.upgrade import add_document_names
                 add_document_names(connection, metadata)
+        if 'documents' in existing:
+            from app.database.upgrade import add_document_status
+            add_document_status(connection, metadata)
         for table in metadata.sorted_tables:
             if table.name in sa.inspect(connection).get_table_names(schema='public'):
                 validate_table(connection, table)

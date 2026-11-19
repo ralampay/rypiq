@@ -44,14 +44,14 @@ def test_application_update_delete_and_missing_records(services):
         applications.get(first.id)
 
 
-def test_application_embedding_changes_and_delete_restricted_with_documents(services):
+def test_application_embedding_changes_allowed_and_delete_restricted_with_documents(services):
     applications, documents, first, _ = services
     created = documents.create(Document(filename='text', storage_key='shared.txt', name=str(uuid4())))
     assert applications.update(replace(first, name='allowed')).name == 'allowed'
     for changes in ({'embedding_size': 3}, {'embedding_model': 'other'}, {'provision_type': 'openai'}):
-        with pytest.raises(ValueError, match='documents'):
-            applications.update(replace(first, **changes))
-        assert applications.get(first.id).embedding_model == first.embedding_model
+        applications.update(replace(first, **changes))
+        for key, value in changes.items():
+            assert getattr(applications.get(first.id), key) == value
     with pytest.raises(ValueError, match='documents'):
         applications.delete(first.id)
     assert documents.get(created.id).storage_key == 'shared.txt'
@@ -86,7 +86,8 @@ def test_document_crud_is_application_scoped_and_preserves_storage(services, bac
         documents.update(replace(b, application_id=first.id))
     changed = replace(a, filename='updated', metadata={'extra': 1})
     assert documents.update(changed).filename == 'updated'
-    assert documents.get(a.id).metadata == {'extra': 1}
+    assert documents.get(a.id).metadata['extra'] == 1
+    assert '_rypiq_processing' in documents.get(a.id).metadata
     with pytest.raises(ValueError):
         documents.update(replace(a, application_id=second.id))
     assert documents.delete(a.id) is True
@@ -108,7 +109,7 @@ def test_repository_scope_cannot_reassign_documents(services, backend):
     assert documents.get(a.id).application_id == first.id
 
 
-@pytest.mark.parametrize('action', ['update', 'delete'])
+@pytest.mark.parametrize('action', ['delete'])
 def test_application_mutation_locks_out_concurrent_document_creation(services, backend, monkeypatch, action):
     import sqlalchemy as sa
     from app.database.repositories.postgresql.document import PostgreSQLDocumentRepository
@@ -144,7 +145,7 @@ def test_application_mutation_locks_out_concurrent_document_creation(services, b
 def test_application_rejected_update_preserves_timestamp_and_data(services):
     applications, documents, first, _ = services
     documents.create(Document(filename='text', name=str(uuid4())))
-    candidate = replace(first, embedding_size=3, data={'uncommitted': True})
+    candidate = replace(first, api_key='forbidden', data={'uncommitted': True})
     with pytest.raises(ValueError):
         applications.update(candidate)
     loaded = applications.get(first.id)
@@ -153,11 +154,11 @@ def test_application_rejected_update_preserves_timestamp_and_data(services):
 
 
 @pytest.mark.parametrize('changes', [{'document_prefix': 'new'}, {'query_prefix': 'new'}, {'dimensions': 2}])
-def test_embedding_preprocessing_cannot_change_with_documents(services, changes):
+def test_embedding_preprocessing_can_change_with_documents(services, changes):
     applications, documents, first, _ = services
     documents.create(Document(filename='text', name=str(uuid4())))
-    with pytest.raises(ValueError, match='documents'):
-        applications.update(replace(first, data={'provider_config': {'embedding': changes}}))
+    updated = applications.update(replace(first, data={'provider_config': {'embedding': changes}}))
+    assert updated.data['provider_config']['embedding'] == changes
     # Inference settings and endpoint/credential locations do not change embedding preprocessing.
     changed = applications.update(replace(first, data={'provider_config': {
         'inference': {'context_size': 4096}, 'embedding': {'api_key_env': 'NEW_KEY'}}}))

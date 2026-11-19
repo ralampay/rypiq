@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from uuid import UUID
+from contextlib import AbstractContextManager
+from app.models.application import Application
 
 from app.models.document import Document, DocumentDetails, DocumentSummary
 from app.models.embedding import Embedding
@@ -36,7 +38,7 @@ class DocumentRepository(ABC):
         self,
         limit: int = 100,
         offset: int = 0,
-        *, application_id: UUID | None = None,
+        *, application_id: UUID | None = None, status: str | None = None,
     ) -> list[Document]:
         raise NotImplementedError
 
@@ -55,5 +57,20 @@ class DocumentRepository(ABC):
 
     @abstractmethod
     def list_summaries(self, *, application_id: UUID, limit: int = 100,
-                       offset: int = 0) -> list[DocumentSummary]:
+                       offset: int = 0, status: str | None = None) -> list[DocumentSummary]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def set_status(self, id: UUID, status: str) -> Document:
+        """Commit a status change without overwriting other document fields."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def processing_lock(self, id: UUID) -> AbstractContextManager[None]:
+        """Context manager holding an exclusive nonblocking processing lease."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def replace_embeddings(self, document: Document, embeddings: list[Embedding], *, application: Application) -> DocumentDetails:
+        """Atomically replace chunks and mark done, checking captured settings."""
         raise NotImplementedError

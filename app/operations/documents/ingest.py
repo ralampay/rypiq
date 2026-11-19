@@ -1,14 +1,9 @@
-from app.logging import log_operation
-from app.exceptions import ModelMismatchError
-from app.models.application import Application, validate_application
-from app.providers.config import embedding_preprocessing, model_identity
+"""Compatibility pipeline for callers borrowing an already constructed provider."""
+from app.models.application import Application
 from app.database.repositories.document import DocumentRepository
 from app.storage.base import ObjectStorage
 from app.models.document import DocumentDetails
 from app.providers.contracts.embedding import EmbeddingProvider
-from app.operations.embeddings.embed_file import EmbedTextFile
-from app.operations.documents.persist import persist_document
-from app.operations.documents.name import prepare_document_name
 
 
 class IngestDocument:
@@ -26,17 +21,15 @@ class IngestDocument:
         self.batch_size = batch_size
 
     def execute(self) -> DocumentDetails:
-        with log_operation('ingest') as outcome:
-            validate_application(self.application)
-            if self.provider.model_name != model_identity(self.application.embedding_model, self.application.provision_type):
-                raise ModelMismatchError("Embedding provider model must match the application")
-            name = prepare_document_name(name=self.name, application_id=self.application.id, repository=self.repository)
-            embedded = EmbedTextFile(path=self.path, chunk_size=self.chunk_size,
-                                   stride=self.stride, embedding_provider=self.provider,
-                                   batch_size=self.batch_size,
-                                   document_prefix=embedding_preprocessing(self.application.data, self.application.provision_type, self.application.embedding_size)[0]).execute()
-            result = persist_document(self.path, self.storage, self.repository,
-                                    self.chunk_size, self.stride, embedded, self.application, name=name)
-            outcome['document_id'] = str(result.document.id)
-            outcome['application_id'] = str(self.application.id)
-            return result
+        from contextlib import nullcontext
+        from app.exceptions import ValidationError
+        from app.operations.documents.create import CreateDocument
+        from app.operations.documents.process import ProcessDocument
+        if type(self.batch_size) is not int or self.batch_size < 1:
+            raise ValidationError('batch_size must be a positive integer')
+        created = CreateDocument(name=self.name, path=self.path, application=self.application,
+            repository=self.repository, storage=self.storage).execute()
+        return ProcessDocument(document_id=created.document.id, application=self.application,
+            repository=self.repository, storage=self.storage,
+            provider_scope=lambda application: nullcontext(self.provider),
+            chunk_size=self.chunk_size, stride=self.stride, batch_size=self.batch_size).execute()

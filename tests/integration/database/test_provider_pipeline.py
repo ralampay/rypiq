@@ -7,7 +7,7 @@ from app.storage.providers.local import LocalStorage
 
 
 @pytest.mark.parametrize('provider', ['openai', 'llama-server'])
-def test_remote_pipeline_preserves_application_scope_and_storage_order(backend, server, tmp_path, monkeypatch, provider):
+def test_remote_pipeline_preserves_application_scope_and_storage_order(backend, server, tmp_path, monkeypatch, provider, capsys):
     backend.create_database()
     monkeypatch.setattr(application, 'get_database', lambda: backend)
     monkeypatch.setenv('TEST_PIPELINE_MODEL_KEY', 'test-only')
@@ -39,5 +39,18 @@ def test_remote_pipeline_preserves_application_scope_and_storage_order(backend, 
     stored_before = [item.key for item in storage.list()]
     with pytest.raises(ProviderError, match='response'):
         application.ingest_file(path=str(source), chunk_size=100, stride=100, application_id=wrong_size.id, name='test document')
-    assert [item.key for item in storage.list()] == stored_before
-    assert len(backend.documents().list()) == 1
+    assert len(storage.list()) == len(stored_before) + 1
+    assert len(backend.documents().list()) == 2
+    assert backend.documents().list(status='error')[0].application_id == wrong_size.id
+
+    # The CLI reuses the stored original after upload removal and picks up saved chunking changes.
+    from dataclasses import replace
+    import json
+    from app import cli
+    application.update_application(application=replace(first, data={**config,
+        'chunking': {'chunk_size': 5, 'stride': 5}}))
+    source.unlink()
+    cli.main(['documents:process', '--document-id', str(docs.document.id)])
+    processed = json.loads(capsys.readouterr().out)
+    assert processed['id'] == str(docs.document.id)
+    assert processed['status'] == 'done' and processed['embedding_count'] == 3

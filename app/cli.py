@@ -1,6 +1,7 @@
 """Console entrypoint: parse, dispatch, serialize, and report safe errors."""
 from collections.abc import Sequence
 import json
+from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -38,8 +39,8 @@ def format_document_table(records: list[dict]) -> str:
     names = [''.join(char if char.isprintable() else json.dumps(char)[1:-1]
                      for char in record['name']) for record in records]
     width = max([len('NAME'), *map(len, names)])
-    lines = [f'{"ID":<36}  {"NAME":<{width}}  EMBEDDINGS']
-    lines.extend(f'{record["id"]:<36}  {name:<{width}}  {record["embedding_count"]}'
+    lines = [f'{"ID":<36}  {"NAME":<{width}}  STATUS      EMBEDDINGS']
+    lines.extend(f'{record["id"]:<36}  {name:<{width}}  {record["status"]:<10}  {record["embedding_count"]}'
                  for record, name in zip(records, names, strict=True))
     return '\n'.join(lines)
 
@@ -62,6 +63,17 @@ def format_doctor_report(report: ConfigurationReport) -> str:
     return '\n'.join(lines)
 
 
+def processing_failure_context(failure: Exception) -> str:
+    identifier = getattr(failure, '_rypiq_document_id', None)
+    if not isinstance(identifier, UUID):
+        return ''
+    message = f' Document ID: {identifier}. Retry with documents:process --document-id {identifier}.'
+    status_failure = 'Could not record error status; the document may still be pending or processing.'
+    if status_failure in getattr(failure, '__notes__', ()):
+        message += ' ' + status_failure
+    return message
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -81,7 +93,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         configure_logging()
         logging_initialized = True
         with log_operation('cli', command=args.command):
-            exportable_output = args.command in ('documents:create', 'documents:show', 'embeddings:show')
+            exportable_output = args.command in ('documents:create', 'documents:process', 'documents:show', 'embeddings:show')
             destination = None
             if exportable_output and args.output:
                 destination = validate_export_path(args.output, source=args.path if args.command == 'documents:create' else None)
@@ -90,7 +102,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 try:
                     write_json_export(destination, result)
                 except (OSError, ValueError, TypeError, ResourceCleanupError):
-                    if args.command == 'documents:create':
+                    if args.command in ('documents:create', 'documents:process'):
                         raise ExportError(f"Document persisted but JSON export failed. Document ID: {result['id']}. "
                                            'Retry export with documents:show --id ID --output PATH.',
                                           operation=args.command, completed_steps=('persist',), resource_id=result['id']) from None
@@ -106,14 +118,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 serialized = json.dumps(result, indent=2, allow_nan=False)
             print(serialized)
     except RyPiqError as exc:
-        parser.error(str(exc))
-    except SQLAlchemyError:
-        parser.error('Database operation failed; check connectivity, permissions, pgvector availability and schema configuration')
+        parser.error(str(exc) + processing_failure_context(exc))
+    except SQLAlchemyError as exc:
+        parser.error('Database operation failed; check connectivity, permissions, pgvector availability and schema configuration' + processing_failure_context(exc))
     except (ValueError, OSError, RuntimeError, KeyError) as exc:
-        parser.error(str(exc))
-    except Exception:
+        parser.error(str(exc) + processing_failure_context(exc))
+    except Exception as exc:
         # Unexpected driver/plugin diagnostics can contain credentials.
-        parser.error('Command failed; check configuration and dependencies')
+        parser.error('Command failed; check configuration and dependencies' + processing_failure_context(exc))
     finally:
         if logging_initialized:
             shutdown_logging()

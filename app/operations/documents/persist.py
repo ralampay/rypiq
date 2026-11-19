@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import UUID
 
 from app.exceptions import EmptyDocumentError, ModelMismatchError
 from app.models.application import Application, validate_application
@@ -23,8 +24,32 @@ def persist_document(path: str, storage: ObjectStorage,
         raise EmptyDocumentError('File has no nonempty text chunks')
     source = Path(path)
     document = Document(name=name, application_id=application.id, filename=source.name, source=str(source))
+    chunks = build_embeddings(document.id, result, application, chunk_size, stride)
+    stored = save_file(path=source, storage=storage)
+    document.status = 'done'
+    document.storage_key = stored.key
+    document.content_type = stored.content_type
+    from app.models.processing import SNAPSHOT_KEY, processing_settings
+    document.metadata = {'storage_checksum': stored.checksum, SNAPSHOT_KEY: processing_settings(application)}
+    try:
+        repository.create_with_embeddings(document, chunks)
+    except Exception as failure:
+        try:
+            storage.delete(stored.key)
+        except Exception:
+            failure.add_note('Could not compensate the stored source object; cleanup is incomplete.')
+        raise
+    return DocumentDetails(document, chunks)
+
+
+def build_embeddings(document_id: UUID, result: dict, application: Application,
+                     chunk_size: int, stride: int) -> list[Embedding]:
+    if result['model'] != model_identity(application.embedding_model, application.provision_type):
+        raise ModelMismatchError('Embedding provider model must match the application')
+    if not result['chunks']:
+        raise EmptyDocumentError('File has no nonempty text chunks')
     chunks = [Embedding(
-        document_id=document.id, content=chunk['text'],
+        document_id=document_id, content=chunk['text'],
         embedding=validate_embedding(chunk['embedding'], application.embedding_size),
         chunk_index=chunk['index'], model_name=result['model'],
         embedding_model=application.embedding_model, embedding_size=application.embedding_size,
@@ -35,16 +60,4 @@ def persist_document(path: str, storage: ObjectStorage,
     from app.models.validation import validate_chunk
     for chunk in chunks:
         validate_chunk(chunk)
-    stored = save_file(path=source, storage=storage)
-    document.storage_key = stored.key
-    document.content_type = stored.content_type
-    document.metadata = {'storage_checksum': stored.checksum}
-    try:
-        repository.create_with_embeddings(document, chunks)
-    except Exception as failure:
-        try:
-            storage.delete(stored.key)
-        except Exception:
-            failure.add_note('Could not compensate the stored source object; cleanup is incomplete.')
-        raise
-    return DocumentDetails(document, chunks)
+    return chunks

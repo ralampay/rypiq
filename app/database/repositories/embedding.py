@@ -31,5 +31,5 @@ class EmbeddingRepository(ABC):
     @abstractmethod
     def search_by_vector(self, embedding: list[float], limit: int = 10,
                          filters: dict | None = None, *, application_id: UUID,
-                         metadata_filters: dict | None = None) -> list[SearchResult]:
+                         metadata_filters: dict | None = None, expected_settings: dict | None = None) -> list[SearchResult]:
         raise NotImplementedError

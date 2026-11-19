@@ -146,16 +146,42 @@ singular names and `ls-applications` are no longer accepted.
 
 Use `documents:create PATH --application-id UUID --name NAME` to save an original and generate
 its embeddings. Required `--name` supplies the document reference.
-`documents:list --application-id UUID` shows every ID, name, and current embedding
+`documents:list --application-id UUID` shows every ID, name, status, and current embedding
 count; use `--output json` for structured summaries. `documents:show --id UUID` returns parent fields and ordered chunk
 summaries; `documents:delete --id UUID` removes the parent and all chunks.
 `embeddings:show` and `embeddings:delete` address individual chunks by `--id`.
 A missing show fails; an absent delete returns `{"deleted": false}`.
 
-Document create/show and embedding show support JSON export with `--output`.
+Document create/process/show and embedding show support JSON export with `--output`.
 Embedding show alone supports `--embeddings-full`; its exports always contain
 complete vectors. Creation export failures report the persisted parent ID and
 preserve the records. See the [CLI reference](../README.md#embedding-commands).
+
+## Document status and processing
+
+`Document.status` defaults to `pending`; allowed values are `pending`, `processing`,
+`error`, and `done`, enforced by a PostgreSQL check constraint. `db:migrate` upgrades
+recognized pre-status schemas transactionally, assigning `done` to parents with
+embeddings and `pending` otherwise. It preserves IDs, timestamps, originals, and chunks.
+Existing completed embeddings receive a snapshot of their application's settings.
+
+Use `DocumentService.list(status='error', limit=100, offset=0)` for scoped fetching,
+`DocumentRepository.list(status='pending')` for cross-application polling, or
+`documents:list --application-id UUID --status error` from the CLI. An omitted filter
+returns every status. These are reads, not work-claim operations.
+
+`ProcessDocument` holds a session advisory lock for the document across short committed
+transactions. Concurrent processors receive `ConflictError`; crashed processors release
+their lock when the connection closes. Processing may be retried from any status.
+`replace_embeddings()` locks the application before the document and verifies captured
+processing settings before committing new chunks and `done` together.
+
+The reserved document metadata key `_rypiq_processing` stores non-secret model,
+dimension, provider, preprocessing, and chunking settings. Repository updates preserve
+this key; successful processing replaces it. Search checks exact embedding compatibility,
+independently of document status, and guards vector dimensions before cosine evaluation.
+Chunking changes do not invalidate existing vectors. Configuration changes during
+processing abort replacement; old embeddings remain available for inspection.
 
 ## CRUD services
 
@@ -199,11 +225,14 @@ Missing service reads and repository/service updates raise the appropriate
 (all compatible with `KeyError`). Repository reads return `None`; missing deletes
 return `False`. Invalid inputs raise `ValidationError` subclasses (compatible with
 `ValueError`); conflicts have distinct `ConflictError` subclasses. Document deletion cascades to chunks and preserves the
-stored original. Ingestion uses `create_with_embeddings(document, embeddings)`
-for a single database transaction. On database failure it compensates only the
-newly stored original; filesystem and database operations are not one transaction.
+stored original. Creation commits a pending parent before attaching its stored original.
+Processing commits `processing`, then atomically replaces chunks and marks `done`.
+Failure marks `error` while preserving existing chunks and the original. A failure to
+attach a newly stored original compensates that object; filesystem and database
+operations are not one transaction. The lower-level `create_with_embeddings()` API
+remains available for callers supplying a complete aggregate.
 
-Application updates preserve API keys and creation timestamps. Embedding model, size, provision type, and preprocessing settings can change only when no documents reference the application. Other settings can be updated while documents exist. Application deletion is restricted until its documents have been removed. These rules execute under transaction locks so document creation cannot race past them. API key rotation and document updates remain outside the CLI; `embeddings:show` and `embeddings:delete` access individual chunk records by UUID. `applications:update` also resolves model catalog aliases; see [Model providers](PROVIDERS.md).
+Application updates preserve API keys and creation timestamps. Embedding model, size, provision type, and preprocessing settings can change while documents exist. Reprocess each affected document with `documents:process --document-id UUID`. Search excludes incompatible embedding snapshots until replacement succeeds. Application deletion is restricted until its documents have been removed. Application deletion and document creation use transaction locks to enforce ownership and deletion restrictions. API key rotation and document updates remain outside the CLI; `embeddings:show` and `embeddings:delete` access individual chunk records by UUID. `applications:update` also resolves model catalog aliases; see [Model providers](PROVIDERS.md).
 
 ## Database integration tests
 

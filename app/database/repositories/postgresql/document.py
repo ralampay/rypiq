@@ -1,4 +1,5 @@
 from uuid import UUID
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -12,12 +13,15 @@ from app.exceptions import (
     ImmutableFieldError,
     InvalidIdentifierError,
     ValidationError,
+    ConflictError,
 )
 from app.database.repositories.document import DocumentRepository
-from app.models.validation import validate_pagination
+from app.models.validation import validate_pagination, validate_status, validate_id
 from app.database.repositories.postgresql.embedding import PostgreSQLEmbeddingRepository
 from app.models.document import Document, DocumentDetails, DocumentSummary
 from app.models.embedding import Embedding
+from app.models.application import Application
+from app.models.processing import SNAPSHOT_KEY, processing_settings
 from app.models.validation import validate_document, validate_chunk, normalize_document_name
 
 
@@ -44,15 +48,18 @@ class PostgreSQLDocumentRepository(DocumentRepository):
                 self.table.c.application_id == application_id, self.table.c.name == name)))
 
     def list_summaries(self, *, application_id: UUID, limit: int = 100,
-                       offset: int = 0) -> list[DocumentSummary]:
+                       offset: int = 0, status: str | None = None) -> list[DocumentSummary]:
         if not isinstance(application_id, UUID):
             raise InvalidIdentifierError('Document listing requires an application UUID')
         validate_pagination(limit, offset)
-        query = sa.select(self.table.c.id, self.table.c.name,
+        query = sa.select(self.table.c.id, self.table.c.name, self.table.c.status,
                           sa.func.count(self.embeddings.c.id).label('embedding_count')).select_from(
                               self.table.outerjoin(self.embeddings)).where(
                                   self.table.c.application_id == application_id).group_by(
                                       self.table.c.id).order_by(self.table.c.id).limit(limit).offset(offset)
+        if status is not None:
+            validate_status(status)
+            query = query.where(self.table.c.status == status)
         with database_connection(self.engine) as connection:
             rows = connection.execute(query).mappings().all()
         return [DocumentSummary(**row) for row in rows]
@@ -67,7 +74,8 @@ class PostgreSQLDocumentRepository(DocumentRepository):
     def create(self, document):
         validate_document(document)
         with self._write(document) as connection:
-            self._application(connection, document.application_id)
+            application = self._application(connection, document.application_id)
+            document.metadata = {**document.metadata, SNAPSHOT_KEY: processing_settings(Application(**application))}
             connection.execute(self.table.insert().values(**asdict(document)))
         return document
 
@@ -81,6 +89,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
             values.append({**asdict(item), 'embedding': vector})
         with self._write(document) as connection:
             application = self._application(connection, document.application_id)
+            document.metadata = {**document.metadata, SNAPSHOT_KEY: processing_settings(Application(**application))}
             for item in embeddings:
                 PostgreSQLEmbeddingRepository.validate_snapshot(item, application)
             connection.execute(self.table.insert().values(**asdict(document)))
@@ -128,8 +137,11 @@ class PostgreSQLDocumentRepository(DocumentRepository):
                 raise DocumentNotFoundError(document.id, resource_id=document.id)
             if original['application_id'] != document.application_id:
                 raise ImmutableFieldError('Document ownership cannot be changed')
+            if SNAPSHOT_KEY in original['metadata']:
+                values['metadata'] = {**values['metadata'], SNAPSHOT_KEY: original['metadata'][SNAPSHOT_KEY]}
             connection.execute(self.table.update().where(self.table.c.id == document.id).values(**values))
         document.updated_at = values['updated_at']
+        document.metadata = values['metadata']
         return document
 
     def delete(self, id, *, application_id=None):
@@ -137,12 +149,88 @@ class PostgreSQLDocumentRepository(DocumentRepository):
             return bool(connection.execute(self._scope(self.table.delete().where(
                 self.table.c.id == id), application_id)).rowcount)
 
-    def list(self, limit=100, offset=0, *, application_id=None):
+    def list(self, limit=100, offset=0, *, application_id=None, status=None):
         validate_pagination(limit, offset)
+        query = self._scope(sa.select(self.table), application_id)
+        if status is not None:
+            validate_status(status)
+            query = query.where(self.table.c.status == status)
         with database_connection(self.engine) as connection:
-            rows = connection.execute(self._scope(sa.select(self.table), application_id).order_by(
-                self.table.c.id).limit(limit).offset(offset)).mappings().all()
+            rows = connection.execute(query.order_by(self.table.c.id).limit(limit).offset(offset)).mappings().all()
         return [Document(**row) for row in rows]
 
     def close(self):
         close_resource(self.engine.dispose)
+
+    def set_status(self, id: UUID, status: str) -> Document:
+        validate_id(id)
+        validate_status(status)
+        with self._write() as connection:
+            row = connection.execute(self.table.update().where(self.table.c.id == id).values(
+                status=status, updated_at=datetime.now(timezone.utc)).returning(self.table)).mappings().first()
+            if row is None:
+                raise DocumentNotFoundError(id, resource_id=id)
+        return Document(**row)
+
+    @contextmanager
+    def processing_lock(self, id: UUID):
+        validate_id(id)
+        # Session locks survive the short status/write transactions. A dedicated
+        # connection owns the lock and must never return locked to the pool.
+        key = int.from_bytes(id.bytes[:8], 'big', signed=True)
+        with database_connection(self.engine) as connection:
+            try:
+                acquired = connection.scalar(sa.text('SELECT pg_try_advisory_lock(:key)'), {'key': key})
+                connection.commit()
+            except BaseException as failure:
+                # A failed response may still have acquired the server-side lock.
+                close_resource(connection.invalidate, failure)
+                raise
+            if not acquired:
+                raise ConflictError('Document is already being processed')
+            failure = None
+            try:
+                yield
+            except BaseException as exc:
+                failure = exc
+                raise
+            finally:
+                try:
+                    connection.execute(sa.text('SELECT pg_advisory_unlock(:key)'), {'key': key})
+                    connection.commit()
+                except Exception as cleanup_failure:
+                    close_resource(connection.invalidate, failure or cleanup_failure)
+                    if failure is None:
+                        raise
+                    failure.add_note('Processing lock cleanup failed; its connection was discarded.')
+
+    def replace_embeddings(self, document: Document, embeddings: list[Embedding], *, application: Application) -> DocumentDetails:
+        validate_document(document)
+        if application.id != document.application_id:
+            raise ValidationError('Application does not match document ownership')
+        values = []
+        for item in embeddings:
+            vector = validate_chunk(item)
+            if item.document_id != document.id:
+                raise ValidationError('Embedding belongs to another document')
+            values.append({**asdict(item), 'embedding': vector})
+        with self._write(document) as connection:
+            current = self._application(connection, document.application_id)
+            if processing_settings(Application(**current)) != processing_settings(application):
+                raise ConflictError('Application processing settings changed; retry the document')
+            original = connection.execute(sa.select(self.table).where(
+                self.table.c.id == document.id).with_for_update()).mappings().first()
+            if original is None:
+                raise DocumentNotFoundError(document.id, resource_id=document.id)
+            if original['application_id'] != document.application_id:
+                raise ImmutableFieldError('Document ownership cannot be changed')
+            for item in embeddings:
+                PostgreSQLEmbeddingRepository.validate_snapshot(item, current)
+            connection.execute(self.embeddings.delete().where(self.embeddings.c.document_id == document.id))
+            if values:
+                connection.execute(self.embeddings.insert(), values)
+            row = connection.execute(self.table.update().where(self.table.c.id == document.id).values(
+                status='done', updated_at=datetime.now(timezone.utc),
+                metadata={**original['metadata'], SNAPSHOT_KEY: processing_settings(application)}
+            ).returning(self.table)).mappings().one()
+        return DocumentDetails(Document(**row), embeddings)

@@ -145,7 +145,7 @@ they are not full database URLs or provider credentials.
 | `DatabaseInitializationError` | `db:create` | `('create_database',)` | Database creation succeeded; fix the cause and retry `db:migrate`. |
 | `DatabaseResetError` | `db:reset` | `('drop',)` | The drop step completed; recreation failed. Do not assume old data remains. |
 | `StoragePublicationError` | `storage:save` | `('publish',)` | `storage_key` identifies the complete published object; an owned staging file remains. |
-| `ExportError` | `documents:create` | `('persist',)` | `resource_id` identifies the persisted document. Retry export using `documents:show`, not ingestion. |
+| `ExportError` | `documents:create` or `documents:process` | `('persist',)` | `resource_id` identifies the persisted document. Retry export using `documents:show`, not ingestion. |
 | `ExportError` | `documents:show` or `embeddings:show` | `('load',)` | The record loaded, but export failed; retry with a valid destination. |
 
 An export error does not delete database records or originals and does not guarantee
@@ -156,11 +156,14 @@ alongside `DatabaseError` or `StorageError` when using lifecycle/publication API
 The CLI catches `ExportError` and prints its safe recovery message with the existing
 nonzero exit behavior.
 
-Ingestion still commits the document and embeddings in one transaction. If that
-fails after storing the original, it attempts to delete its newly stored object.
-If compensation also fails, the primary exception survives with a sanitized
-`__notes__` entry explaining incomplete cleanup. There is no cross-system atomic
-transaction and no automatic retry.
+Creation inserts a pending parent before saving its original. Failed attachment
+attempts to delete only the newly stored object. Processing commits `processing`
+before model initialization and replaces embeddings together with `done` in one
+transaction. Failure retains previous chunks and the original, and attempts to mark
+`error`. The original exception survives with a safe document UUID/retry note;
+failed compensation or an unavailable error-status write adds a separate note.
+There is no cross-system atomic transaction or automatic retry. Concurrent processing
+raises `ConflictError`, as does changing application processing settings during an attempt.
 
 Resource owners attempt cleanup on success and failure. When cleanup fails during
 another failure (including an interrupt), the original exception is preserved and

@@ -6,7 +6,7 @@ from app.exceptions import ApplicationNotFoundError, DocumentNotFoundError, Vali
 from app.database.repositories.application import ApplicationRepository
 from app.database.repositories.document import DocumentRepository
 from app.models.document import Document
-from app.models.validation import validate_id, validate_pagination
+from app.models.validation import validate_id, validate_pagination, validate_status
 from app.models.validation import validate_document as _validate_document
 
 
@@ -36,10 +36,13 @@ class DocumentService:
             raise DocumentNotFoundError(document_id, resource_id=document_id)
         return document
 
-    def list(self, *, limit: int = 100, offset: int = 0) -> list[Document]:
+    def list(self, *, limit: int = 100, offset: int = 0, status: str | None = None) -> list[Document]:
         validate_id(self.application_id)
         validate_pagination(limit, offset)
-        return self.repository.list(limit=limit, offset=offset, application_id=self.application_id)
+        if status is not None:
+            validate_status(status)
+        return self.repository.list(limit=limit, offset=offset, application_id=self.application_id,
+                                    **({"status": status} if status is not None else {}))
 
     def update(self, document: Document) -> Document:
         validate_id(self.application_id)

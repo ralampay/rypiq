@@ -152,7 +152,7 @@ Embedding options are `document_prefix`, `query_prefix`, and `dimensions`. The d
 
 Local applications without explicit prefixes retain the existing EmbeddingGemma document/query prefixes. Remote applications default to empty prefixes. Configure the appropriate prefixes for other local models, including empty strings where none are required. These formatting choices are model-specific, not transport-specific. Existing documents are never silently re-embedded.
 
-Application updates cannot change embedding prefixes, requested dimensions, model, provision type, or embedding size while documents exist. Inference settings, endpoint locations, and credential references remain editable. An endpoint change must still serve the same compatible model.
+Application updates can change embedding prefixes, requested dimensions, model, provision type, or embedding size while documents exist. Run `documents:process --document-id UUID` for each affected document. Search excludes incompatible stored embeddings until successful reprocessing. Inference settings, endpoint locations, and credential references remain editable; an endpoint change must still serve the configured model.
 
 ### Local
 

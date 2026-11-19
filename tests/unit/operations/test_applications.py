@@ -36,7 +36,7 @@ def test_create_returns_repository_result_and_missing_application_raises():
 
 
 @pytest.mark.parametrize('provider_type', ['openai', 'llama-server'])
-def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provider_type):
+def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provider_type, document_resources):
     source = tmp_path / 'input.txt'
     source.write_text('hello')
     application = Application(name='test', embedding_model='remote/model', embedding_size=2,
@@ -44,6 +44,7 @@ def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provide
     provider, repository, storage = Mock(model_name='remote/model'), Mock(name_exists=Mock(return_value=False)), Mock()
     provider.embed.return_value = [[1., 0.]]
     storage.save.return_value = Mock(key='stored', content_type='text/plain', checksum='checksum')
+    document_resources(repository, storage, source)
     documents = IngestDocument(path=str(source), chunk_size=10, stride=10, application=application,
                                embedding_provider=provider, repository=repository, storage=storage, name='test document').execute()
     assert documents.embeddings[0].embedding_model == 'remote/model'
@@ -57,14 +58,15 @@ def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provide
 
 
 @pytest.mark.parametrize('vector', [[1., 0.], [0., 0., 0.], [1e100, 0., 0.]])
-def test_bad_application_vector_rejected_before_storage(tmp_path, vector):
+def test_bad_application_vector_retains_original(tmp_path, vector, document_resources):
     source = tmp_path / 'file.txt'
     source.write_text('hello')
     application = Application(name='test', embedding_model='model', embedding_size=3)
     provider = Mock(model_name='model')
     provider.embed.return_value = [vector]
-    storage = Mock()
+    repository, storage = document_resources(source=source)
     with pytest.raises(ValueError, match='Embedding'):
         IngestDocument(path=str(source), chunk_size=10, stride=10, application=application,
-                       embedding_provider=provider, repository=Mock(name_exists=Mock(return_value=False)), storage=storage, name='test document').execute()
-    storage.save.assert_not_called()
+                       embedding_provider=provider, repository=repository, storage=storage, name='test document').execute()
+    storage.save.assert_called_once()
+    assert repository.set_status.call_args.args[1] == 'error'

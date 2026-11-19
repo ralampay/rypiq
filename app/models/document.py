@@ -2,7 +2,10 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+DocumentStatus = Literal["pending", "processing", "error", "done"]
+DOCUMENT_STATUSES = ("pending", "processing", "error", "done")
 
 if TYPE_CHECKING:
     from app.models.embedding import Embedding
@@ -24,6 +27,7 @@ class Document:
     metadata: dict = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
+    status: DocumentStatus = "pending"
 
 
 @dataclass
@@ -37,3 +41,4 @@ class DocumentSummary:
     id: UUID
     name: str
     embedding_count: int
+    status: DocumentStatus = "pending"

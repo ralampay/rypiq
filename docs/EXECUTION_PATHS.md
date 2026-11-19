@@ -30,7 +30,7 @@ flowchart TD
 2. `app.cli_parser.build_parser()` defines syntax and shared options without constructing resources.
 3. `app.cli_handlers` maps parsed values to explicit Python arguments. Its handlers convert domain objects into the existing JSON shapes.
 4. `app.application` constructs configured dependencies through factories, invokes shared operations, and releases the resources it owns.
-5. `app.cli` formats output: JSON to stdout (with an optional full export for `documents:create`, `documents:show`, and `embeddings:show`), or a text table for `applications:list` and `documents:list` by default. It converts failures into sanitized, nonzero exits.
+5. `app.cli` formats output: JSON to stdout (with an optional full export for `documents:create`, `documents:process`, `documents:show`, and `embeddings:show`), or a text table for `applications:list` and `documents:list` by default. It converts failures into sanitized, nonzero exits.
 
 `applications:list` defaults to a text table and accepts `--output text|json` as a
 format selector. Its handler projects IDs, names, saved provision type, embedding
@@ -45,8 +45,12 @@ operation to `ApplicationService.delete()`. The facade owns database cleanup;
 the repository enforces deletion restrictions and returns whether a row was deleted.
 
 `documents:create` calls `application.create_document()`, which loads the
-application once, resolves its provider and `data.chunking` settings, and delegates
-to `IngestDocument`. Missing chunk settings default independently to 500/400.
+application, invokes `CreateDocument` to insert a pending parent and attach the
+stored original, then invokes `ProcessDocument`. `documents:process --document-id UUID`
+calls `application.process_document()` and invokes the same processing operation.
+Processing commits `processing` before reading the current application settings,
+retrieving the stored file, or opening its lazy provider scope. Missing chunk settings
+default independently to 500/400. Provider factories remain in the composition layer.
 Document show/delete use the document repository; embedding show/delete use the
 embedding repository. Both use database-only facades and globally unique UUIDs.
 They neither construct providers nor touch object storage.
@@ -56,13 +60,15 @@ Its injected `list_documents()` operation verifies the application once, then
 fetches 100-row summary pages through `DocumentRepository.list_summaries()`.
 Each query joins and counts embeddings without loading their text or vectors.
 The facade owns one database context; no providers or storage are constructed.
-The handler serializes IDs, names, and current embedding counts. The CLI prints a
+The handler serializes IDs, names, statuses, and current embedding counts. Optional
+`--status` filtering reaches the repository before pagination. The CLI prints a
 text table by default or JSON with `--output json`, only after every page succeeds.
 
 Document ingestion APIs and commands require keyword-only `name`; the CLI requires
 `--name`. Names are trimmed and checked for conflicts before embedding or storage.
 A database unique constraint remains authoritative if another writer wins the race;
-failed ingestion rolls back its rows and compensates its newly stored original.
+the pending insert reserves the name before storage. Processing failures retain the
+original and parent with error status. Failed attachment compensates its newly stored object.
 
 `app.cli_output` validates export destinations and writes complete JSON through a
 temporary file followed by atomic replacement. Export runs only after successful
@@ -213,8 +219,8 @@ on `ingest_document()`. Ingestion now returns `DocumentDetails`.
 New operations belong to their domain package. Document ingestion and search
 coordinate document workflows; embeddings contains vector generation and individual
 embedding-record access. Processing extracts/chunks content, storage manages files,
-and inference contains chat. Keep shared persistence compensation in
-`documents.persist`, and dependency construction/cleanup in `app.application`.
+and inference contains chat. Keep file attachment compensation in
+`documents.create` and chunk construction in `documents.persist`, and dependency construction/cleanup in `app.application`.
 
 ## Repository modules and import migration
 
@@ -255,7 +261,18 @@ See [code conventions](CODE_CONVENTIONS.md) for layer responsibilities and [AGEN
 
 ## Failures and ownership
 
-Injected ingestion rejects a mismatched provider model before reading or embedding the file. Ingestion validates embedding results before storing the source file. The document repository inserts the parent and all embeddings in one transaction. If persistence fails, PostgreSQL rolls back every row and ingestion attempts to delete its newly stored object. Cleanup failures are attached to the original exception as notes. Storage and PostgreSQL still do not share a transaction.
+Creation and processing are independently reusable commands. `CreateDocument` inserts
+`pending` before saving the file, then attaches its storage key. `ProcessDocument`
+acquires a nonblocking advisory lock, commits `processing`, and reads the stored original
+into an owned temporary directory. Model construction is lazy and failures mark `error`.
+The provider and temporary directory are released before the replacement transaction.
+`replace_embeddings()` replaces old chunks, saves the processing snapshot, and marks
+`done` atomically after checking that application processing settings still match.
+Failures preserve previous chunks and the original. Commands never close borrowed
+providers or repositories. A failed error-status write adds a note to the original
+exception; a database outage can leave the previous status unchanged. Session lock
+connections are released on every exit, and process termination releases their locks.
+Storage and PostgreSQL do not share a transaction.
 
 The configured embedding context closes the provider it constructs. A cleanup failure preserves any active operation error; if the operation finished successfully but cleanup fails, a distinct error reports that partial outcome. Injected providers remain caller-owned.
 

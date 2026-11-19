@@ -1,3 +1,4 @@
+from app.models.processing import embedding_settings
 from contextlib import contextmanager
 from dataclasses import asdict
 from types import SimpleNamespace
@@ -47,7 +48,7 @@ def test_remote_search_uses_application_endpoint_and_no_local_model(monkeypatch)
     assert captured[0].base_url == 'http://localhost:8001/v1'
     model.embed.assert_called_once_with(['hello'])
     database.embeddings.return_value.search_by_vector.assert_called_once_with(
-        embedding=[1., 0.], application_id=app.id, limit=10, metadata_filters=None)
+        embedding=[1., 0.], application_id=app.id, limit=10, metadata_filters=None, expected_settings=embedding_settings(app))
 
 
 def test_standalone_embedding_uses_catalog_runtime_defaults(tmp_path, monkeypatch):
@@ -227,16 +228,19 @@ def test_embedding_compatibility_function_honors_catalog_defaults(tmp_path, monk
     assert factory.call_args.kwargs['context_size'] == 4096
 
 
-def test_legacy_ingestion_honors_saved_runtime_options(tmp_path, monkeypatch):
+def test_legacy_ingestion_honors_saved_runtime_options(tmp_path, monkeypatch, document_resources):
     source = tmp_path / 'input.txt'
     source.write_text('hello')
     value = Application(name='a', embedding_model='weights.gguf', embedding_size=2,
                         data={'provider_config': {'embedding': {'context_size': 4096, 'gpu_layers': 2}}})
-    fake = Mock(return_value={'model': 'weights.gguf', 'chunks': [{'text': 'hello', 'embedding': [1., 0.], 'index': 0, 'start': 0, 'end': 5}]})
-    monkeypatch.setattr(application, 'embed_text_file', fake)
-    application.ingest_document(str(source), Mock(), Mock(name_exists=Mock(return_value=False)), 10, 10, application=value, name='test document')
-    assert fake.call_args.kwargs['context_size'] == 4096
-    assert fake.call_args.kwargs['gpu_layers'] == 2
+    model = Mock(model_name='weights.gguf')
+    model.embed.return_value = [[1., 0.]]
+    factory = Mock(return_value=model)
+    repository, storage = document_resources(source=source)
+    application.ingest_document(str(source), storage, repository, 10, 10,
+        application=value, name='test document', provider_factory=factory)
+    assert factory.call_args.kwargs['context_size'] == 4096
+    assert factory.call_args.kwargs['gpu_layers'] == 2
 
 
 def test_legacy_local_composition_rejects_remote_before_effects():
@@ -249,7 +253,7 @@ def test_legacy_local_composition_rejects_remote_before_effects():
 
 
 @pytest.mark.parametrize('provider_type', ['local', 'openai', 'llama-server'])
-def test_mismatched_provider_identity_never_persists_or_searches(tmp_path, provider_type):
+def test_mismatched_provider_identity_marks_error_without_embeddings(tmp_path, provider_type, document_resources):
     from app.operations.documents.ingest import IngestDocument
     from app.operations.documents.search import SearchDocuments
     source = tmp_path / 'file.txt'
@@ -257,12 +261,13 @@ def test_mismatched_provider_identity_never_persists_or_searches(tmp_path, provi
     value = Application(name='a', embedding_model='configured', provision_type=provider_type, embedding_size=2)
     model = Mock(model_name='wrong')
     model.embed.return_value = [[1., 0.]]
-    storage, repository = Mock(name_exists=Mock(return_value=False)), Mock()
+    repository, storage = document_resources(source=source)
     with pytest.raises(ValueError, match='model must match'):
         IngestDocument(path=str(source), chunk_size=10, stride=10, application=value,
                        embedding_provider=model, storage=storage, repository=repository, name='test document').execute()
-    storage.save.assert_not_called()
-    repository.create.assert_not_called()
+    storage.save.assert_called_once()
+    repository.create.assert_called_once()
+    assert repository.set_status.call_args.args[1] == 'error'
     model.embed.assert_not_called()
     model.close.assert_not_called()
     with pytest.raises(ValueError, match='model must match'):
@@ -307,7 +312,7 @@ def test_create_snapshots_direct_local_paths(tmp_path, monkeypatch, configured_b
     assert result.inference_model == prefix + 'models/chat.gguf'
 
 
-def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, monkeypatch, configured_backend):
+def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, monkeypatch, configured_backend, document_resources):
     from app.providers.session import LocalModelSession
     from app.application import embed_text_file, ingest_document
     from app.providers.config import settings_for
@@ -319,6 +324,7 @@ def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, mon
     configured_backend.documents.return_value.name_exists.return_value = False
     source = tmp_path / 'input.txt'
     source.write_text('hello')
+    document_resources(configured_backend.documents.return_value)
     storage = LocalStorage(root=tmp_path / 'objects')
     monkeypatch.setattr('app.storage.factory.get_storage', lambda: storage)
     embedding = Mock(model_name='weights.gguf')
@@ -332,7 +338,7 @@ def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, mon
             embed_text_file(str(source), 10, 10, model_path=value.embedding_model, model_session=session)
             application.ingest_file(path=str(source), chunk_size=10, stride=10,
                                     application_id=value.id, model_session=session, name='test document')
-            ingest_document(str(source), storage, Mock(name_exists=Mock(return_value=False)), 10, 10, application=value, model_session=session, name='test document')
+            ingest_document(str(source), storage, document_resources()[0], 10, 10, application=value, model_session=session, name='test document')
             assert application.search_documents(query='hello', application_id=value.id, model_session=session) == []
             assert application.chat(messages=[ChatMessage('user', 'hi')], application_id=value.id,
                                     model_session=session).text == 'answer'

@@ -1,3 +1,4 @@
+from app.models.processing import embedding_settings
 import pytest
 
 from app.operations.documents.search import semantic_search
@@ -51,6 +52,7 @@ def test_search_embeds_query_and_returns_results():
         "limit": 4,
         "application_id": APPLICATION.id,
         "metadata_filters": None,
+        "expected_settings": embedding_settings(APPLICATION),
     }
 
 

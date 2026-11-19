@@ -20,6 +20,8 @@ from app.exceptions import (
 from app.database.repositories.embedding import EmbeddingRepository
 from app.models.validation import validate_limit
 from app.models.document import Document
+from app.models.application import Application
+from app.models.processing import SNAPSHOT_KEY, embedding_settings
 from app.models.embedding import Embedding, validate_embedding
 from app.models.search import SearchResult
 from app.models.validation import validate_chunk, validate_metadata
@@ -108,12 +110,15 @@ class PostgreSQLEmbeddingRepository(EmbeddingRepository):
         return [self.from_row(row) for row in rows]
 
     def search_by_vector(self, embedding: list[float], limit: int = 10, filters: dict | None = None, *,
-                         application_id: UUID, metadata_filters: dict | None = None) -> list[SearchResult]:
+                         application_id: UUID, metadata_filters: dict | None = None, expected_settings: dict | None = None) -> list[SearchResult]:
         if not isinstance(application_id, UUID):
             raise InvalidIdentifierError('Search requires an application ID')
         vector = validate_embedding(embedding, len(embedding) if isinstance(embedding, (list, tuple)) else 0)
         validate_limit(limit)
-        distance = self.table.c.embedding.cosine_distance(vector).label('distance')
+        # CASE prevents PostgreSQL from evaluating cosine distance on a vector
+        # of another size, regardless of predicate evaluation order.
+        distance = sa.case((self.table.c.embedding_size == len(vector),
+            self.table.c.embedding.cosine_distance(vector)), else_=None).label('distance')
         query = sa.select(self.table, *[column.label('parent_' + column.name) for column in self.documents.c],
                           distance).select_from(self.table.join(self.documents)).where(
                               self.documents.c.application_id == application_id)
@@ -134,7 +139,16 @@ class PostgreSQLEmbeddingRepository(EmbeddingRepository):
                 self.applications.c.id == application_id)).mappings().first()
             if application is None:
                 raise ApplicationNotFoundError(application_id, resource_id=application_id)
+            settings = embedding_settings(Application(**application))
+            if expected_settings is not None and expected_settings != settings:
+                raise ModelMismatchError('Application settings changed during search; retry')
             validate_embedding(vector, application['embedding_size'])
+            query = query.where(
+                self.table.c.embedding_model == application['embedding_model'],
+                self.table.c.embedding_size == application['embedding_size'],
+                self.table.c.provision_type == application['provision_type'],
+                *[self.documents.c.metadata[SNAPSHOT_KEY][key] == sa.type_coerce(value, self.documents.c.metadata.type)
+                  for key, value in settings.items()])
             rows = connection.execute(query.order_by(distance, self.table.c.id).limit(limit)).mappings().all()
         matches = []
         for row in rows:

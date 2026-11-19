@@ -48,13 +48,14 @@ def test_search_command_returns_domain_values_without_output(capsys):
     repository.close.assert_not_called()
 
 
-def test_ingestion_command_uses_injected_dependencies(tmp_path):
+def test_ingestion_command_uses_injected_dependencies(tmp_path, document_resources):
     path = tmp_path / 'source.txt'
     path.write_text('ABCDEFGH')
     model = provider()
     storage = Mock()
     storage.save.return_value = SimpleNamespace(key='documents/source.txt', content_type='text/plain', checksum='checksum')
     repository = Mock(name_exists=Mock(return_value=False))
+    repository, storage = document_resources(repository, storage, path)
     command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=repository,
                                       embedding_provider=model, chunk_size=4, stride=4, name='test document')
     storage.save.assert_not_called()
@@ -62,42 +63,48 @@ def test_ingestion_command_uses_injected_dependencies(tmp_path):
     assert [item.content for item in result.embeddings] == ['ABCD', 'EFGH']
     assert all(item.model_name == 'fake.gguf' for item in result.embeddings)
     assert all(item.document_id == result.document.id for item in result.embeddings)
-    repository.create_with_embeddings.assert_called_once()
+    repository.replace_embeddings.assert_called_once()
     model.close.assert_not_called()
     storage.close.assert_not_called()
 
 
-def test_ingestion_preserves_failure_and_attempts_all_compensation(tmp_path):
+def test_ingestion_preserves_failure_and_attempts_all_compensation(tmp_path, document_resources):
     path = tmp_path / 'source.txt'
     path.write_text('ABCDEFGHIJKL')
     storage = Mock()
     storage.save.return_value = SimpleNamespace(key='owned', content_type='text/plain', checksum='checksum')
     primary = RuntimeError('write failure')
     repository = Mock(name_exists=Mock(return_value=False))
-    repository.create_with_embeddings.side_effect = primary
+    repository.update.side_effect = primary
     storage.delete.side_effect = OSError('cleanup failure')
+    repository, storage = document_resources(repository, storage, path)
+    repository.update.side_effect = primary
     command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=repository,
                                       embedding_provider=provider(), chunk_size=4, stride=4, name='test document')
     with pytest.raises(RuntimeError, match='write failure') as error:
         command.execute()
     assert error.value is primary
     repository.delete.assert_not_called()
-    storage.delete.assert_called_once_with('owned')
-    assert len(primary.__notes__) == 1
+    storage.delete.assert_called_once_with('stored.txt')
+    assert any('cleanup' in note for note in primary.__notes__)
 
 
-def test_embedding_validation_finishes_before_storage(tmp_path):
+def test_embedding_failure_retains_original_and_marks_error(tmp_path, document_resources):
     path = tmp_path / 'source.txt'
     path.write_text('ABCD')
     model = provider()
     model.embed.side_effect = None
     model.embed.return_value = [[float('nan')]]
     storage = Mock()
-    command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=Mock(name_exists=Mock(return_value=False)),
+    repository = Mock()
+    repository, storage = document_resources(repository, storage, path)
+    command = document.IngestDocument(application=APPLICATION, path=str(path), storage=storage, repository=repository,
                                       embedding_provider=model, chunk_size=4, stride=4, name='test document')
     with pytest.raises(ValueError, match='invalid'):
         command.execute()
-    storage.save.assert_not_called()
+    storage.save.assert_called_once()
+    storage.delete.assert_not_called()
+    assert repository.set_status.call_args.args[1] == 'error'
 
 
 @pytest.mark.parametrize('vectors, message', [([[]], 'Empty'), ([[1.], [1., 2.]], 'Inconsistent')])
@@ -122,14 +129,15 @@ def test_search_rejects_nonfinite_provider_output():
     repository.search_by_vector.assert_not_called()
 
 
-def test_ingestion_preserves_primary_when_storage_compensation_fails(tmp_path):
+def test_ingestion_preserves_primary_when_storage_compensation_fails(tmp_path, document_resources):
     path = tmp_path / 'source.txt'
     path.write_text('ABCD')
     storage = Mock()
     storage.save.return_value = SimpleNamespace(key='owned', content_type='text/plain', checksum='checksum')
     storage.delete.side_effect = OSError('cleanup failure')
     repository = Mock(name_exists=Mock(return_value=False))
-    repository.create_with_embeddings.side_effect = ValueError('primary')
+    repository, storage = document_resources(repository, storage, path)
+    repository.update.side_effect = ValueError('primary')
     with pytest.raises(ValueError, match='primary') as error:
         document.IngestDocument(application=APPLICATION, path=str(path), chunk_size=4, stride=4,
                                 embedding_provider=provider(), storage=storage,
