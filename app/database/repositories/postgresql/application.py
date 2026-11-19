@@ -12,7 +12,7 @@ from app.exceptions import (
 )
 from app.database.repositories.application import ApplicationRepository
 from app.models.validation import validate_pagination
-from app.models.application import Application, validate_application
+from app.models.application import Application, ApplicationSummary, validate_application
 from app.providers.config import embedding_preprocessing
 
 
@@ -38,6 +38,20 @@ class PostgreSQLApplicationRepository(ApplicationRepository):
             rows = connection.execute(sa.select(self.table).order_by(
                 self.table.c.id).limit(limit).offset(offset)).mappings().all()
         return [Application(**row) for row in rows]
+
+    def list_summaries(self, *, limit: int = 100, offset: int = 0) -> list[ApplicationSummary]:
+        validate_pagination(limit, offset)
+        documents = self.table.metadata.tables['public.documents']
+        document_count = sa.select(sa.func.count(documents.c.id)).where(
+            documents.c.application_id == self.table.c.id).scalar_subquery()
+        statement = sa.select(
+            self.table.c.id, self.table.c.name, self.table.c.provision_type,
+            self.table.c.embedding_model, self.table.c.embedding_size,
+            self.table.c.inference_model, document_count.label('document_count'),
+        ).order_by(self.table.c.id).limit(limit).offset(offset)
+        with database_connection(self.engine) as connection:
+            rows = connection.execute(statement).mappings().all()
+        return [ApplicationSummary(**row) for row in rows]
 
     def update(self, application: Application) -> Application:
         validate_application(application)

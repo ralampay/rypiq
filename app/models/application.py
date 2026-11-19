@@ -22,6 +22,17 @@ class Application:
     updated_at: datetime = field(default_factory=utc_now)
 
 
+@dataclass
+class ApplicationSummary:
+    id: UUID
+    name: str
+    provision_type: str
+    embedding_model: str
+    embedding_size: int
+    inference_model: str | None
+    document_count: int
+
+
 def validate_application(application: Application) -> None:
     import json
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from app.models.application import Application
+from app.models.application import Application, ApplicationSummary
 
 
 class ApplicationRepository(ABC):
@@ -25,4 +25,9 @@ class ApplicationRepository(ABC):
 
     @abstractmethod
     def delete(self, id: UUID) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_summaries(self, *, limit: int = 100, offset: int = 0) -> list[ApplicationSummary]:
+        """List application configuration and counts of associated documents."""
         raise NotImplementedError

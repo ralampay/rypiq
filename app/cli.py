@@ -17,7 +17,7 @@ from app.cli_output import embedding_preview, validate_export_path, write_json_e
 def format_application_table(records: list[dict]) -> str:
     columns = [('id', 'ID'), ('name', 'NAME'), ('provision_type', 'PROVISION TYPE'),
                ('embedding_model', 'EMBEDDING MODEL'), ('embedding_size', 'EMBEDDING SIZE'),
-               ('inference_model', 'INFERENCE MODEL')]
+               ('inference_model', 'INFERENCE MODEL'), ('document_count', 'DOCUMENTS')]
     rows = [[heading for _, heading in columns]]
     for record in records:
         row = []

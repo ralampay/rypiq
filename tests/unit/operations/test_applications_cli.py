@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import application, cli
-from app.models.application import Application
+from app.models.application import Application, ApplicationSummary
 
 
 @pytest.fixture
@@ -16,35 +16,37 @@ def listing_database(monkeypatch):
     database = MagicMock()
     database.__enter__.return_value = database
     repository = database.applications.return_value
-    repository.list.return_value = []
+    repository.list_summaries.return_value = []
     factory = Mock(return_value=database)
     monkeypatch.setattr(application, 'get_database', factory)
     return database, repository, factory
 
 
 def records(count):
-    return [Application(id=UUID(int=i + 1), name=f'Application {i}',
-                        embedding_model='unused', api_key='private-key',
-                        data={'private': 'configuration'}) for i in range(count)]
+    return [ApplicationSummary(id=UUID(int=i + 1), name=f'Application {i}',
+                               provision_type='local', embedding_model='unused',
+                               embedding_size=768, inference_model=None, document_count=0)
+            for i in range(count)]
 
 
 @pytest.mark.parametrize('options', [[], ['--output', 'text']])
 def test_text_lists_model_configuration(listing_database, capsys, options):
     database, repository, _ = listing_database
     values = records(2)
+    values[1].document_count = 3
     values[1].provision_type = 'openai'
     values[1].embedding_model = 'text-embedding-model'
     values[1].embedding_size = 1536
     values[1].inference_model = 'chat-model'
-    repository.list.return_value = values
+    repository.list_summaries.return_value = values
     cli.main(['applications:list', *options])
     output = capsys.readouterr()
     lines = output.out.splitlines()
     assert re.split(r' {2,}', lines[0]) == [
-        'ID', 'NAME', 'PROVISION TYPE', 'EMBEDDING MODEL', 'EMBEDDING SIZE', 'INFERENCE MODEL']
+        'ID', 'NAME', 'PROVISION TYPE', 'EMBEDDING MODEL', 'EMBEDDING SIZE', 'INFERENCE MODEL', 'DOCUMENTS']
     assert [re.split(r' {2,}', line) for line in lines[1:]] == [
-        [str(values[0].id), 'Application 0', 'local', 'unused', '768', '-'],
-        [str(values[1].id), 'Application 1', 'openai', 'text-embedding-model', '1536', 'chat-model']]
+        [str(values[0].id), 'Application 0', 'local', 'unused', '768', '-', '0'],
+        [str(values[1].id), 'Application 1', 'openai', 'text-embedding-model', '1536', 'chat-model', '3']]
     for heading, cells in [('NAME', ['Application 0', 'Application 1']),
                            ('PROVISION TYPE', ['local', 'openai']),
                            ('EMBEDDING MODEL', ['unused', 'text-embedding-model']),
@@ -62,13 +64,13 @@ def test_text_lists_model_configuration(listing_database, capsys, options):
 def test_json_lists_every_page_and_public_model_configuration(listing_database, capsys, count):
     database, repository, factory = listing_database
     values = records(count)
-    repository.list.side_effect = lambda *, limit, offset: values[offset:offset + limit]
+    repository.list_summaries.side_effect = lambda *, limit, offset: values[offset:offset + limit]
     cli.main(['applications:list', '--output', 'json'])
     assert json.loads(capsys.readouterr().out) == [
         {'id': str(value.id), 'name': value.name, 'provision_type': value.provision_type,
          'embedding_model': value.embedding_model, 'embedding_size': value.embedding_size,
-         'inference_model': value.inference_model} for value in values]
-    assert repository.list.call_args_list == [
+         'inference_model': value.inference_model, 'document_count': 0} for value in values]
+    assert repository.list_summaries.call_args_list == [
         call(limit=100, offset=offset) for offset in range(0, count + 1, 100)]
     factory.assert_called_once_with()
     database.__exit__.assert_called_once_with(None, None, None)
@@ -83,18 +85,19 @@ def test_json_preserves_model_configuration_types_and_values(listing_database, c
     value.embedding_model = 'embedding\tmodel'
     value.embedding_size = 1536
     value.inference_model = inference_model
-    repository.list.return_value = [value]
+    value.document_count = 12
+    repository.list_summaries.return_value = [value]
     cli.main(['applications:list', '--output', 'json'])
     assert json.loads(capsys.readouterr().out) == [{
         'id': str(value.id), 'name': value.name, 'provision_type': 'openai',
         'embedding_model': 'embedding\tmodel', 'embedding_size': 1536,
-        'inference_model': inference_model}]
+        'inference_model': inference_model, 'document_count': 12}]
 
 
 def test_empty_text_has_headers(listing_database, capsys):
     cli.main(['applications:list'])
     assert capsys.readouterr().out == (
-        'ID  NAME  PROVISION TYPE  EMBEDDING MODEL  EMBEDDING SIZE  INFERENCE MODEL\n')
+        'ID  NAME  PROVISION TYPE  EMBEDDING MODEL  EMBEDDING SIZE  INFERENCE MODEL  DOCUMENTS\n')
 
 
 @pytest.mark.parametrize('output', ['text', 'json'])
@@ -102,7 +105,7 @@ def test_control_characters_are_escaped_only_in_text(listing_database, capsys, o
     _, repository, _ = listing_database
     value = records(1)[0]
     value.name = 'Café\nsecond\tcolumn\r\x1b[31m'
-    repository.list.return_value = [value]
+    repository.list_summaries.return_value = [value]
     cli.main(['applications:list', '--output', output])
     result = capsys.readouterr().out
     if output == 'json':
@@ -119,7 +122,7 @@ def test_text_model_values_are_complete_and_safe(listing_database, capsys, model
     value = records(1)[0]
     value.embedding_model = model
     value.inference_model = model
-    repository.list.return_value = [value]
+    repository.list_summaries.return_value = [value]
     cli.main(['applications:list'])
     output = capsys.readouterr().out
     assert len(output.splitlines()) == 2
@@ -142,7 +145,7 @@ def test_invalid_output_is_rejected_before_database_access(listing_database, cap
 def test_later_page_failure_closes_database_without_partial_output(listing_database, capsys, output):
     database, repository, _ = listing_database
     error = SQLAlchemyError('private connection details')
-    repository.list.side_effect = [records(100), error]
+    repository.list_summaries.side_effect = [records(100), error]
     with pytest.raises(SystemExit) as caught:
         cli.main(['applications:list', '--output', output])
     assert caught.value.code == 2
@@ -155,7 +158,7 @@ def test_later_page_failure_closes_database_without_partial_output(listing_datab
 
 def test_python_listing_keeps_pagination(listing_database):
     _, repository, _ = listing_database
-    values = records(1)
+    values = [Application(name='Existing contract', embedding_model='unused')]
     repository.list.return_value = values
     assert application.enumerate_applications(limit=20, offset=5) == values
     repository.list.assert_called_once_with(limit=20, offset=5)

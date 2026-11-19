@@ -93,24 +93,38 @@ def test_applications_list_installed_cli_lists_all_records(invoke, backend):
     empty_text = invoke('applications:list')
     assert empty_text.returncode == 0, empty_text.stderr
     headings = ['ID', 'NAME', 'PROVISION TYPE', 'EMBEDDING MODEL',
-                'EMBEDDING SIZE', 'INFERENCE MODEL']
+                'EMBEDDING SIZE', 'INFERENCE MODEL', 'DOCUMENTS']
     assert empty_text.stdout == '  '.join(headings) + '\n'
 
     repository = backend.applications()
     applications = [repository.create(Application(name=f'Application {index}',
                     embedding_model='unused')) for index in range(101)]
     applications.sort(key=lambda value: value.id)
+    from app.models.document import Document
+    from app.models.embedding import Embedding
+
+    documents = backend.documents()
+    first = Document(name='First', application_id=applications[0].id)
+    documents.create_with_embeddings(first, [
+        Embedding(document_id=first.id, content=f'Chunk {index}', chunk_index=index,
+                  embedding=[1.] + [0.] * 767, embedding_model='unused', embedding_size=768)
+        for index in range(3)
+    ])
+    documents.create(Document(name='Second', application_id=applications[0].id))
+    documents.create(Document(name='Other application', application_id=applications[-1].id))
+    counts = {applications[0].id: 2, applications[-1].id: 1}
     result = invoke('applications:list', '--output', 'json')
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [
         {'id': str(value.id), 'name': value.name, 'provision_type': value.provision_type,
          'embedding_model': value.embedding_model, 'embedding_size': value.embedding_size,
-         'inference_model': value.inference_model} for value in applications]
+         'inference_model': value.inference_model, 'document_count': counts.get(value.id, 0)}
+        for value in applications]
     for arguments in ((), ('--output', 'text')):
         result = invoke('applications:list', *arguments)
         assert result.returncode == 0, result.stderr
         assert [re.split(r' {2,}', line) for line in result.stdout.splitlines()] == [headings] + [
-            [str(value.id), value.name, 'local', 'unused', '768', '-'] for value in applications]
+            [str(value.id), value.name, 'local', 'unused', '768', '-', str(counts.get(value.id, 0))] for value in applications]
 
 
 def test_application_rename_and_delete_preserve_related_data(invoke, backend):

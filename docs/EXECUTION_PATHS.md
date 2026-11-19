@@ -34,9 +34,10 @@ flowchart TD
 
 `applications:list` defaults to a text table and accepts `--output text|json` as a
 format selector. Its handler projects IDs, names, saved provision type, embedding
-model, embedding size, and inference model for both formats from `application.enumerate_all_applications()`, which owns one database context and
-calls `operations.applications.list.list_all_applications()`. The operation reads
-100-record pages through the existing repository until exhausted. Presentation
+model, embedding size, inference model, and document count for both formats from `application.enumerate_application_summaries()`, which owns one database context and
+calls `operations.applications.list.list_application_summaries()`. The operation reads
+100-record pages through `ApplicationRepository.list_summaries()` until exhausted.
+Each query counts associated parent documents without loading their contents or embeddings. Presentation
 happens only after the complete listing succeeds; failures release the database
 without printing partial results. The Python `enumerate_applications()` pagination API remains available.
 `applications:delete` delegates through a configured facade and an injected

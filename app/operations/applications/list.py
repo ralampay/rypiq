@@ -1,5 +1,5 @@
 from app.database.repositories.application import ApplicationRepository
-from app.models.application import Application
+from app.models.application import Application, ApplicationSummary
 from app.services.application import ApplicationService
 
 
@@ -16,3 +16,13 @@ def list_all_applications(*, repository: ApplicationRepository) -> list[Applicat
         applications.extend(page)
         if len(page) < 100:
             return applications
+
+
+def list_application_summaries(*, repository: ApplicationRepository) -> list[ApplicationSummary]:
+    """Read every application with its document count, borrowing the repository."""
+    summaries: list[ApplicationSummary] = []
+    while True:
+        page = repository.list_summaries(limit=100, offset=len(summaries))
+        summaries.extend(page)
+        if len(page) < 100:
+            return summaries

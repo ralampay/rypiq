@@ -13,7 +13,7 @@ from app.exceptions import (
     ValidationError,
 )
 from app.database.factory import get_database
-from app.models.application import Application, validate_application, chunking_settings, with_chunking_options
+from app.models.application import Application, ApplicationSummary, validate_application, chunking_settings, with_chunking_options
 from app.services.application import ApplicationService
 from app.providers.catalog import load_catalog, resolve_model, catalog_models
 from app.providers.config import ProviderSettings, validate_options, model_identity, embedding_preprocessing
@@ -28,7 +28,7 @@ from app.operations.inference.chat import Chat
 from app.providers.validation import validate_chat
 from app.operations.applications.create import CreateApplication
 from app.operations.applications.get import get_application
-from app.operations.applications.list import list_applications, list_all_applications
+from app.operations.applications.list import list_applications, list_all_applications, list_application_summaries
 from app.operations.applications.delete import delete_application as delete_application_record
 
 from app.providers.contracts.embedding import EmbeddingProvider
@@ -246,6 +246,11 @@ def enumerate_applications(*, limit: int = 100, offset: int = 0) -> list[Applica
 def enumerate_all_applications() -> list[Application]:
     with get_database() as database:
         return list_all_applications(repository=database.applications())
+
+
+def enumerate_application_summaries() -> list[ApplicationSummary]:
+    with get_database() as database:
+        return list_application_summaries(repository=database.applications())
 
 
 def delete_application(*, application_id: UUID) -> bool:
