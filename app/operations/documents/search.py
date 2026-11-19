@@ -2,6 +2,8 @@
 
 import math
 
+from app.logging import log_operation
+
 from app.exceptions import (
     InvalidEmbeddingError,
     ModelMismatchError,
@@ -95,7 +97,11 @@ class SearchDocuments:
         self.limit = limit
 
     def execute(self) -> list[SearchResult]:
-        return _search(self.query, self.embedding_provider, self.repository, self.application, self.limit, self.metadata_filters)
+        with log_operation('search') as outcome:
+            results = _search(self.query, self.embedding_provider, self.repository, self.application, self.limit, self.metadata_filters)
+            outcome['result_count'] = len(results)
+            outcome['application_id'] = str(self.application.id)
+            return results
 
 
 def semantic_search(query: str, embedding_provider: EmbeddingProvider,

@@ -5,6 +5,7 @@ import json
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.environment import load_environment
+from app.logging import configure_logging, log_operation, shutdown_logging
 
 from app.exceptions import RyPiqError, ExportError, ResourceCleanupError
 from app.cli_parser import build_parser
@@ -57,6 +58,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error('--doctor cannot be combined with a subcommand')
     if not args.doctor and args.command is None:
         parser.error('the following arguments are required: command')
+    logging_initialized = False
     try:
         load_environment()
         if args.doctor:
@@ -65,30 +67,33 @@ def main(argv: Sequence[str] | None = None) -> None:
             if report.incomplete_count:
                 raise SystemExit(1)
             return
-        exportable_output = args.command in ('documents:create', 'documents:show', 'embeddings:show')
-        destination = None
-        if exportable_output and args.output:
-            destination = validate_export_path(args.output, source=args.path if args.command == 'documents:create' else None)
-        result = execute(args)
-        if destination is not None:
-            try:
-                write_json_export(destination, result)
-            except (OSError, ValueError, TypeError, ResourceCleanupError):
-                if args.command == 'documents:create':
-                    raise ExportError(f"Document persisted but JSON export failed. Document ID: {result['id']}. "
-                                       'Retry export with documents:show --id ID --output PATH.',
-                                      operation=args.command, completed_steps=('persist',), resource_id=result['id']) from None
-                raise ExportError('Record loaded but JSON export failed; check the destination.',
-                                  operation=args.command, completed_steps=('load',), resource_id=result['id']) from None
-        if args.command == 'embeddings:show' and not args.embeddings_full:
-            result = embedding_preview(result)
-        if args.command == 'applications:list' and args.output == 'text':
-            serialized = format_application_table(result)
-        elif args.command == 'documents:list' and args.output == 'text':
-            serialized = format_document_table(result)
-        else:
-            serialized = json.dumps(result, indent=2, allow_nan=False)
-        print(serialized)
+        configure_logging()
+        logging_initialized = True
+        with log_operation('cli', command=args.command):
+            exportable_output = args.command in ('documents:create', 'documents:show', 'embeddings:show')
+            destination = None
+            if exportable_output and args.output:
+                destination = validate_export_path(args.output, source=args.path if args.command == 'documents:create' else None)
+            result = execute(args)
+            if destination is not None:
+                try:
+                    write_json_export(destination, result)
+                except (OSError, ValueError, TypeError, ResourceCleanupError):
+                    if args.command == 'documents:create':
+                        raise ExportError(f"Document persisted but JSON export failed. Document ID: {result['id']}. "
+                                           'Retry export with documents:show --id ID --output PATH.',
+                                          operation=args.command, completed_steps=('persist',), resource_id=result['id']) from None
+                    raise ExportError('Record loaded but JSON export failed; check the destination.',
+                                      operation=args.command, completed_steps=('load',), resource_id=result['id']) from None
+            if args.command == 'embeddings:show' and not args.embeddings_full:
+                result = embedding_preview(result)
+            if args.command == 'applications:list' and args.output == 'text':
+                serialized = format_application_table(result)
+            elif args.command == 'documents:list' and args.output == 'text':
+                serialized = format_document_table(result)
+            else:
+                serialized = json.dumps(result, indent=2, allow_nan=False)
+            print(serialized)
     except RyPiqError as exc:
         parser.error(str(exc))
     except SQLAlchemyError:
@@ -98,6 +103,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     except Exception:
         # Unexpected driver/plugin diagnostics can contain credentials.
         parser.error('Command failed; check configuration and dependencies')
+    finally:
+        if logging_initialized:
+            shutdown_logging()
 
 
 if __name__ == '__main__':

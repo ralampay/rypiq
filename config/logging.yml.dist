@@ -1,0 +1,17 @@
+# Optional overrides; defaults work without config/logging.yml.
+# Relative directories resolve against the project root.
+development:
+  directory: logs
+  level: INFO
+  format: text
+  console: false
+production:
+  directory: logs
+  level: INFO
+  format: text
+  console: false
+test:
+  directory: logs
+  level: INFO
+  format: text
+  console: false

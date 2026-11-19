@@ -72,7 +72,7 @@ def test_create_defaults_and_no_export(resources, capsys):
     assert result['embedding_count'] == 1
     assert repository.create_with_embeddings.call_args.args[1][0].metadata['chunk_size'] == 500
     assert repository.create_with_embeddings.call_args.args[1][0].metadata['stride'] == 400
-    assert list(source.parent.iterdir()) == [source]
+    assert set(source.parent.iterdir()) == {source, source.parent / 'logs'}
 
 
 @pytest.mark.parametrize('options', [[], ['--embeddings-full']])
@@ -180,7 +180,7 @@ def test_export_replace_failure_retains_persisted_records(resources, tmp_path, m
     repository.delete.assert_not_called()
     storage.delete.assert_not_called()
     assert output.read_text() == 'previous'
-    assert set(tmp_path.iterdir()) == {source, output}
+    assert set(tmp_path.iterdir()) == {source, output, tmp_path / 'logs'}
 
 
 def test_ingestion_failure_compensates_and_does_not_export(resources, tmp_path):

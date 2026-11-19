@@ -46,3 +46,5 @@ Thumbs.db
 *.zip
 
 /.codequest/
+/config/logging.yml
+/logs/

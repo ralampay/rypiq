@@ -137,6 +137,13 @@ loads models, or contacts remote model providers. It does not validate table
 constraints, column types, database write permissions, or saved application
 settings. Filesystem permission checks do not guarantee successful writes.
 
+## Logging
+
+Normal CLI commands write to `logs/<environment>.log`, following `LOG_ENV`, then
+`DATABASE_ENV`, then `development`. Defaults are readable INFO logs; YAML,
+environment variables, and Python initialization can override them. See
+[logging configuration and callable components](docs/LOGGING.md).
+
 ## Database
 
 See [Database documentation](docs/DATABASE.md) for configuration, lifecycle commands, schema and migration behavior, application management, CRUD services, and database integration tests.

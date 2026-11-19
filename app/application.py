@@ -5,6 +5,7 @@ from contextlib import contextmanager, AbstractContextManager
 from pathlib import Path
 from uuid import UUID
 
+from app.logging import log_operation
 from app.exceptions import (
     InvalidIdentifierError,
     ModelMismatchError,
@@ -95,17 +96,18 @@ def embed_file(*, path: str, chunk_size: int, stride: int, model_path: str = DEF
                context_size: int | None = None, gpu_layers: int | None = None, batch_size: int = 1,
                provider_factory: Callable | None = None, document_prefix: str | None = None,
                model_session: LocalModelSession | None = None) -> dict:
-    # Reject empty/invalid files before loading a potentially large local model.
-    document = prepare_text_file(path, chunk_size, stride, batch_size)
-    resolved, defaults = resolve_model(model_path, 'local', 'embedding', _catalog_for(model_path))
-    prefix = defaults.get('document_prefix', 'title: none | text: ') if document_prefix is None else document_prefix
-    context_size = defaults.get('context_size', 2048) if context_size is None else context_size
-    gpu_layers = defaults.get('gpu_layers', 0) if gpu_layers is None else gpu_layers
-    validate_options({'context_size': context_size, 'gpu_layers': gpu_layers, 'document_prefix': prefix}, 'embedding')
-    with open_embedding_provider(model_path=resolved, context_size=context_size,
-                                 gpu_layers=gpu_layers, provider_factory=provider_factory,
-                                 model_session=model_session) as provider:
-        return embed_chunks(document, provider, batch_size, prefix)
+    with log_operation('embed_file'):
+        # Reject empty/invalid files before loading a potentially large local model.
+        document = prepare_text_file(path, chunk_size, stride, batch_size)
+        resolved, defaults = resolve_model(model_path, 'local', 'embedding', _catalog_for(model_path))
+        prefix = defaults.get('document_prefix', 'title: none | text: ') if document_prefix is None else document_prefix
+        context_size = defaults.get('context_size', 2048) if context_size is None else context_size
+        gpu_layers = defaults.get('gpu_layers', 0) if gpu_layers is None else gpu_layers
+        validate_options({'context_size': context_size, 'gpu_layers': gpu_layers, 'document_prefix': prefix}, 'embedding')
+        with open_embedding_provider(model_path=resolved, context_size=context_size,
+                                     gpu_layers=gpu_layers, provider_factory=provider_factory,
+                                     model_session=model_session) as provider:
+            return embed_chunks(document, provider, batch_size, prefix)
 
 
 def _application_settings(application: Application, capability: str, model_path: str | None = None,

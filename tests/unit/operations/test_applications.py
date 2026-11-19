@@ -49,6 +49,7 @@ def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provide
     assert documents.embeddings[0].embedding_model == 'remote/model'
     provider.embed.assert_called_once_with(['hello'])
     provider.embed.reset_mock()
+    repository.search_by_vector.return_value = []
     SearchDocuments(query='query', application=application, embedding_provider=provider,
                     repository=repository).execute()
     provider.embed.assert_called_once_with(['query'])
