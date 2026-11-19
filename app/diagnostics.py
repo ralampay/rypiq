@@ -5,6 +5,8 @@ import re
 
 import yaml
 
+from app.environment import load_environment
+
 from app.database.config import PROJECT_ROOT, validate_config
 from app.database.diagnostics import check_database
 from app.models.diagnostics import ConfigurationCheck, ConfigurationReport
@@ -113,6 +115,7 @@ def _catalog_checks() -> list[ConfigurationCheck]:
 
 def check_configuration() -> ConfigurationReport:
     """Inspect local configuration and PostgreSQL readiness without changing data."""
+    load_environment()
     checks = []
     for name, inspect in (('Database configuration', _database_checks),
                           ('Storage configuration', _storage_checks),

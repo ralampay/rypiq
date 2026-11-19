@@ -12,6 +12,8 @@ from pathlib import Path
 
 import yaml
 
+from app.environment import load_environment
+
 from app.exceptions import ModelCatalogError
 from app.providers.config import CAPABILITIES, PROVIDERS, validate_options
 from app.providers.types.model import ModelInfo
@@ -29,6 +31,7 @@ class CatalogEntry:
 
 
 def load_catalog(path: str | Path | None = None) -> dict[str, CatalogEntry]:
+    load_environment()
     source = Path(path or os.getenv('RYPIQ_MODELS_CONFIG', DEFAULT_CATALOG)).expanduser().resolve()
     try:
         raw = yaml.safe_load(source.read_text())

@@ -39,6 +39,20 @@ development:
   dimensions: 768
 ```
 
+RyPiq loads the project-root `.env` before reading configuration, for both CLI
+commands and direct Python configuration calls. For example:
+
+```dotenv
+DATABASE_ENV=development
+RYPIQ_DATABASE_PASSWORD=replace-with-your-local-password
+```
+
+Existing process environment variables take precedence, including empty values.
+The `.env` file is optional and Git-ignored. Its location follows the project's
+source root, not the working directory; parent directories are not searched.
+Loaded values stay in the process environment, so restart the process to pick up
+changes to those values. Check your setup with `rypiq --doctor`.
+
 Replace the host, user, and database for your setup. `dimensions` is the default
 embedding size for new applications; choose a size supported by your model. See [database prerequisites](docs/DATABASE.md#setup-and-configuration)
 for PostgreSQL permissions and pgvector setup.

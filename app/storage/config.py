@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 
 import yaml
+from app.environment import load_environment
+
 from app.exceptions import StorageConfigurationError
 
 
@@ -9,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def load_storage_config() -> dict:
+    load_environment()
     config_file = Path(
         os.getenv(
             "RYPIQ_STORAGE_CONFIG",

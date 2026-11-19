@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 
 import yaml
+from app.environment import load_environment
+
 from app.exceptions import DatabaseConfigurationError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +45,7 @@ def validate_config(settings):
 
 
 def load_database_config():
+    load_environment()
     path = Path(os.getenv('RYPIQ_DATABASE_CONFIG', PROJECT_ROOT / 'config/database.yml')).expanduser().resolve()
     environment = os.getenv('DATABASE_ENV', 'development')
     try:

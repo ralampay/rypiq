@@ -4,6 +4,8 @@ import json
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.environment import load_environment
+
 from app.exceptions import RyPiqError, ExportError, ResourceCleanupError
 from app.cli_parser import build_parser
 from app.diagnostics import ConfigurationReport, check_configuration
@@ -56,6 +58,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not args.doctor and args.command is None:
         parser.error('the following arguments are required: command')
     try:
+        load_environment()
         if args.doctor:
             report = check_configuration()
             print(format_doctor_report(report))

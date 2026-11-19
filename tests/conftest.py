@@ -1,5 +1,13 @@
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def isolate_project_environment(tmp_path, monkeypatch):
+    """Never preload developer credentials into tests."""
+    from app import environment
+
+    monkeypatch.setattr(environment, 'PROJECT_ROOT', tmp_path)
+
 @pytest.fixture
 def sample_text():
     return "Hello world!"
