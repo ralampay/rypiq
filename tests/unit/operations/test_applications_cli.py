@@ -1,5 +1,6 @@
 """Application listing contracts through the CLI and owned database boundary."""
 import json
+import re
 from unittest.mock import MagicMock, Mock, call
 from uuid import UUID
 
@@ -28,27 +29,45 @@ def records(count):
 
 
 @pytest.mark.parametrize('options', [[], ['--output', 'text']])
-def test_text_lists_only_ids_and_names(listing_database, capsys, options):
+def test_text_lists_model_configuration(listing_database, capsys, options):
     database, repository, _ = listing_database
     values = records(2)
+    values[1].provision_type = 'openai'
+    values[1].embedding_model = 'text-embedding-model'
+    values[1].embedding_size = 1536
+    values[1].inference_model = 'chat-model'
     repository.list.return_value = values
     cli.main(['applications:list', *options])
     output = capsys.readouterr()
-    assert output.out == (f'{"ID":<36}  NAME\n'
-                          f'{values[0].id}  Application 0\n'
-                          f'{values[1].id}  Application 1\n')
+    lines = output.out.splitlines()
+    assert re.split(r' {2,}', lines[0]) == [
+        'ID', 'NAME', 'PROVISION TYPE', 'EMBEDDING MODEL', 'EMBEDDING SIZE', 'INFERENCE MODEL']
+    assert [re.split(r' {2,}', line) for line in lines[1:]] == [
+        [str(values[0].id), 'Application 0', 'local', 'unused', '768', '-'],
+        [str(values[1].id), 'Application 1', 'openai', 'text-embedding-model', '1536', 'chat-model']]
+    for heading, cells in [('NAME', ['Application 0', 'Application 1']),
+                           ('PROVISION TYPE', ['local', 'openai']),
+                           ('EMBEDDING MODEL', ['unused', 'text-embedding-model']),
+                           ('EMBEDDING SIZE', ['768', '1536']),
+                           ('INFERENCE MODEL', ['-', 'chat-model'])]:
+        assert all(line.startswith(cell, lines[0].index(heading))
+                   for line, cell in zip(lines[1:], cells))
+    assert 'private-key' not in output.out
+    assert 'configuration' not in output.out
     assert output.err == ''
     database.__exit__.assert_called_once_with(None, None, None)
 
 
 @pytest.mark.parametrize('count', [0, 1, 100, 101, 200])
-def test_json_lists_every_page_and_only_public_summary_fields(listing_database, capsys, count):
+def test_json_lists_every_page_and_public_model_configuration(listing_database, capsys, count):
     database, repository, factory = listing_database
     values = records(count)
     repository.list.side_effect = lambda *, limit, offset: values[offset:offset + limit]
     cli.main(['applications:list', '--output', 'json'])
     assert json.loads(capsys.readouterr().out) == [
-        {'id': str(value.id), 'name': value.name} for value in values]
+        {'id': str(value.id), 'name': value.name, 'provision_type': value.provision_type,
+         'embedding_model': value.embedding_model, 'embedding_size': value.embedding_size,
+         'inference_model': value.inference_model} for value in values]
     assert repository.list.call_args_list == [
         call(limit=100, offset=offset) for offset in range(0, count + 1, 100)]
     factory.assert_called_once_with()
@@ -56,9 +75,26 @@ def test_json_lists_every_page_and_only_public_summary_fields(listing_database, 
     repository.close.assert_not_called()
 
 
+@pytest.mark.parametrize('inference_model', [None, '', 'chat\nmodel'])
+def test_json_preserves_model_configuration_types_and_values(listing_database, capsys, inference_model):
+    _, repository, _ = listing_database
+    value = records(1)[0]
+    value.provision_type = 'openai'
+    value.embedding_model = 'embedding\tmodel'
+    value.embedding_size = 1536
+    value.inference_model = inference_model
+    repository.list.return_value = [value]
+    cli.main(['applications:list', '--output', 'json'])
+    assert json.loads(capsys.readouterr().out) == [{
+        'id': str(value.id), 'name': value.name, 'provision_type': 'openai',
+        'embedding_model': 'embedding\tmodel', 'embedding_size': 1536,
+        'inference_model': inference_model}]
+
+
 def test_empty_text_has_headers(listing_database, capsys):
     cli.main(['applications:list'])
-    assert capsys.readouterr().out == f'{"ID":<36}  NAME\n'
+    assert capsys.readouterr().out == (
+        'ID  NAME  PROVISION TYPE  EMBEDDING MODEL  EMBEDDING SIZE  INFERENCE MODEL\n')
 
 
 @pytest.mark.parametrize('output', ['text', 'json'])
@@ -72,7 +108,25 @@ def test_control_characters_are_escaped_only_in_text(listing_database, capsys, o
     if output == 'json':
         assert json.loads(result)[0]['name'] == value.name
     else:
-        assert result == f'{"ID":<36}  NAME\n{value.id}  Café\\nsecond\\tcolumn\\r\\u001b[31m\n'
+        assert len(result.splitlines()) == 2
+        assert r'Café\nsecond\tcolumn\r\u001b[31m' in result
+
+
+@pytest.mark.parametrize('model', [None, '', '/models/' + 'long-model-name-' * 12,
+                                   'model\nname\tversion\r\x1b[31m'])
+def test_text_model_values_are_complete_and_safe(listing_database, capsys, model):
+    _, repository, _ = listing_database
+    value = records(1)[0]
+    value.embedding_model = model
+    value.inference_model = model
+    repository.list.return_value = [value]
+    cli.main(['applications:list'])
+    output = capsys.readouterr().out
+    assert len(output.splitlines()) == 2
+    cells = re.split(r' {2,}', output.splitlines()[1])
+    expected = '-' if not model else json.dumps(model)[1:-1]
+    assert cells[3] == expected
+    assert cells[5] == expected
 
 
 def test_invalid_output_is_rejected_before_database_access(listing_database, capsys):

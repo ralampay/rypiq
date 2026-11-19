@@ -1,5 +1,6 @@
 from uuid import uuid4
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -91,7 +92,9 @@ def test_applications_list_installed_cli_lists_all_records(invoke, backend):
     assert json.loads(empty.stdout) == []
     empty_text = invoke('applications:list')
     assert empty_text.returncode == 0, empty_text.stderr
-    assert empty_text.stdout == f'{"ID":<36}  NAME\n'
+    headings = ['ID', 'NAME', 'PROVISION TYPE', 'EMBEDDING MODEL',
+                'EMBEDDING SIZE', 'INFERENCE MODEL']
+    assert empty_text.stdout == '  '.join(headings) + '\n'
 
     repository = backend.applications()
     applications = [repository.create(Application(name=f'Application {index}',
@@ -100,12 +103,14 @@ def test_applications_list_installed_cli_lists_all_records(invoke, backend):
     result = invoke('applications:list', '--output', 'json')
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [
-        {'id': str(value.id), 'name': value.name} for value in applications]
+        {'id': str(value.id), 'name': value.name, 'provision_type': value.provision_type,
+         'embedding_model': value.embedding_model, 'embedding_size': value.embedding_size,
+         'inference_model': value.inference_model} for value in applications]
     for arguments in ((), ('--output', 'text')):
         result = invoke('applications:list', *arguments)
         assert result.returncode == 0, result.stderr
-        assert result.stdout.splitlines() == [f'{"ID":<36}  NAME'] + [
-            f'{value.id}  {value.name}' for value in applications]
+        assert [re.split(r' {2,}', line) for line in result.stdout.splitlines()] == [headings] + [
+            [str(value.id), value.name, 'local', 'unused', '768', '-'] for value in applications]
 
 
 def test_application_rename_and_delete_preserve_related_data(invoke, backend):

@@ -121,7 +121,9 @@ def application_create(args: Namespace) -> dict:
 
 
 def application_list(args: Namespace) -> list[dict]:
-    return [dict(id=str(value.id), name=value.name)
+    return [dict(id=str(value.id), name=value.name, provision_type=value.provision_type,
+                 embedding_model=value.embedding_model, embedding_size=value.embedding_size,
+                 inference_model=value.inference_model)
             for value in application.enumerate_all_applications()]
 
 

@@ -15,12 +15,23 @@ from app.cli_output import embedding_preview, validate_export_path, write_json_e
 
 
 def format_application_table(records: list[dict]) -> str:
-    lines = [f'{"ID":<36}  NAME']
+    columns = [('id', 'ID'), ('name', 'NAME'), ('provision_type', 'PROVISION TYPE'),
+               ('embedding_model', 'EMBEDDING MODEL'), ('embedding_size', 'EMBEDDING SIZE'),
+               ('inference_model', 'INFERENCE MODEL')]
+    rows = [[heading for _, heading in columns]]
     for record in records:
-        name = ''.join(character if character.isprintable() else json.dumps(character)[1:-1]
-                       for character in record['name'])
-        lines.append(f'{record["id"]:<36}  {name}')
-    return '\n'.join(lines)
+        row = []
+        for key, _ in columns:
+            value = record[key]
+            if key in ('embedding_model', 'inference_model') and not value:
+                value = '-'
+            row.append(''.join(char if char.isprintable() else json.dumps(char)[1:-1]
+                               for char in str(value)))
+        rows.append(row)
+    widths = [max(len(row[index]) for row in rows) for index in range(len(columns))]
+    return '\n'.join('  '.join(cell.ljust(width) if index < len(columns) - 1 else cell
+                               for index, (cell, width) in enumerate(zip(row, widths, strict=True)))
+                     for row in rows)
 
 
 def format_document_table(records: list[dict]) -> str:

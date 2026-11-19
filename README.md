@@ -214,7 +214,7 @@ An application selects a provider and embedding/inference models. Create and upd
 | Command | Required arguments | Purpose |
 | --- | --- | --- |
 | `rypiq applications:create` | `--name NAME --embedding-model MODEL` | Create an application and generate its API key. |
-| `rypiq applications:list` | None | List every application's ID and name; `--output text` (default) or `--output json`. |
+| `rypiq applications:list` | None | List every application's ID, name, and model configuration; `--output text` (default) or `--output json`. |
 | `rypiq applications:show APPLICATION_UUID` | Application UUID positional argument | Show one application's details. |
 | `rypiq applications:delete APPLICATION_UUID` | Application UUID positional argument | Delete an application that has no documents. |
 | `rypiq applications:update APPLICATION_UUID` | Application UUID positional argument | Update supplied fields; omitted fields remain unchanged. |
@@ -227,10 +227,14 @@ Application CLI commands use the plural `applications:*` domain. The former
 `application:*` names and `ls-applications` are no longer supported.
 
 `applications:list` lists all applications in UUID order, without pagination arguments.
-The default text table has `ID` and `NAME` columns; control characters in names are
+The default text table has `ID`, `NAME`, `PROVISION TYPE`, `EMBEDDING MODEL`,
+`EMBEDDING SIZE`, and `INFERENCE MODEL` columns. Model values are the saved
+configuration, without alias resolution; missing or empty models display `-`.
+Columns expand to show complete values. Control characters in text cells are
 escaped so each application occupies one row. An empty database prints only the
-headers. JSON output preserves names and contains only `id` and `name`, returning
-`[]` when empty. Listing does not guarantee a snapshot during concurrent changes.
+headers. JSON output contains `id`, `name`, `provision_type`, `embedding_model`,
+`embedding_size`, and `inference_model`, returning `[]` when empty. It preserves
+original string values, integer embedding sizes, and `null` for an unset inference model. Listing does not guarantee a snapshot during concurrent changes.
 
 ```sh
 rypiq applications:list
@@ -242,7 +246,14 @@ Example JSON output:
 
 ```json
 [
-  {"id": "00000000-0000-0000-0000-000000000001", "name": "My application"}
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "name": "My application",
+    "provision_type": "local",
+    "embedding_model": "my-embedding-model",
+    "embedding_size": 768,
+    "inference_model": null
+  }
 ]
 ```
 

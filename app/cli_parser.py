@@ -79,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument('--provision-type', choices=['local', 'openai', 'llama-server'], default='local')
     create.add_argument('--inference-model')
     create.add_argument('--data', type=json.loads, default={})
-    summaries = commands.add_parser('applications:list', help='List every application ID and name')
+    summaries = commands.add_parser('applications:list', help='List applications with model configuration')
     summaries.add_argument('--output', choices=['text', 'json'], default='text',
                            help='Output format (default: text)')
     show = commands.add_parser('applications:show', help='Show application without API key')

@@ -33,8 +33,8 @@ flowchart TD
 5. `app.cli` formats output: JSON to stdout (with an optional full export for `documents:create`, `documents:show`, and `embeddings:show`), or a text table for `applications:list` and `documents:list` by default. It converts failures into sanitized, nonzero exits.
 
 `applications:list` defaults to a text table and accepts `--output text|json` as a
-format selector. Its handler projects only IDs and names from
-`application.enumerate_all_applications()`, which owns one database context and
+format selector. Its handler projects IDs, names, saved provision type, embedding
+model, embedding size, and inference model for both formats from `application.enumerate_all_applications()`, which owns one database context and
 calls `operations.applications.list.list_all_applications()`. The operation reads
 100-record pages through the existing repository until exhausted. Presentation
 happens only after the complete listing succeeds; failures release the database

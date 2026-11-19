@@ -113,10 +113,14 @@ rypiq applications:update APPLICATION_UUID --name 'Renamed application'
 
 `applications:show APPLICATION_UUID` returns application settings without its API key. Creation also accepts `--provision-type`, `--inference-model`, and `--data '{"purpose":"example"}'`. Embedding and inference execution support all three providers. See [Model providers](PROVIDERS.md) for endpoints, credentials, model aliases, and chat commands.
 
-`applications:list` returns every application's ID and name in UUID order. It
-prints an `ID` / `NAME` text table by default and accepts only `--output text` or
-`--output json`. Empty results produce headers in text or `[]` in JSON. There are
-no CLI pagination options; Python service and repository listing retain pagination.
+`applications:list` lists every application in UUID order. Its default text table
+shows ID, name, provision type, embedding model, embedding size, and inference
+model. Missing or empty models display `-`; complete values are shown with control
+characters escaped. It accepts only `--output text` or `--output json`; JSON
+contains `id`, `name`, `provision_type`, `embedding_model`, `embedding_size`, and
+`inference_model`, preserving saved values and using `null` for an unset inference
+model. Empty results produce headers in text or `[]` in JSON. There are no CLI
+pagination options; Python service and repository listing retain pagination.
 
 `applications:update APPLICATION_UUID --name NAME` overrides the name while
 preserving omitted settings. It also supports the existing embedding, provider,
