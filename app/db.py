@@ -1,4 +1,5 @@
 """Database-only composition for library callers and search workflows."""
+from app.config import AppConfig, load_config
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -9,17 +10,19 @@ from app.database.repositories.postgresql.document import PostgreSQLDocumentRepo
 
 
 @contextmanager
-def open_document_repository() -> Iterator[DocumentRepository]:
-    with get_database() as backend:
+def open_document_repository(*, config: AppConfig | None = None) -> Iterator[DocumentRepository]:
+    config = load_config() if config is None else config
+    with get_database(config) as backend:
         yield backend.documents()
 
 
-def get_document_repository() -> PostgreSQLDocumentRepository:
+def get_document_repository(*, config: AppConfig | None = None) -> PostgreSQLDocumentRepository:
     """Compatibility factory. The caller must call repository.close() when done.
 
     Prefer open_document_repository() for exception-safe resource ownership.
     """
-    backend = get_database()
+    config = load_config() if config is None else config
+    backend = get_database(config)
     try:
         return backend.documents()
     except BaseException as failure:

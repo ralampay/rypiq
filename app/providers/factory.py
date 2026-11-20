@@ -1,5 +1,5 @@
 """Typed provider construction; environment access stays at this boundary."""
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 import os
 
@@ -16,12 +16,13 @@ from app.providers.lifecycle import managed_provider
 from app.providers.remote import OpenAIProvider, LlamaServerProvider
 
 
-def _create_client(settings: ProviderSettings | DiscoverySettings, client_factory=None):
+def _create_client(settings: ProviderSettings | DiscoverySettings, client_factory=None, *, credentials: Mapping[str, str] | None = None):
     if settings.provider not in ('openai', 'llama-server'):
         raise ProviderConfigurationError('Unsupported provider')
     if settings.provider == 'llama-server' and not settings.base_url:
         raise ProviderConfigurationError('llama-server requires an explicit base URL')
-    key = os.getenv(settings.api_key_env) if settings.api_key_env else None
+    values = os.environ if credentials is None else credentials
+    key = values.get(settings.api_key_env) if settings.api_key_env else None
     if settings.api_key_env and not key:
         raise ProviderConfigurationError('Provider credential environment variable is missing or empty')
     if settings.provider == 'openai' and not key:
@@ -38,62 +39,62 @@ def _create_client(settings: ProviderSettings | DiscoverySettings, client_factor
 
 
 def create_embedding_provider(settings: ProviderSettings, *, embedding_factory=None,
-                              client_factory=None) -> EmbeddingProvider:
+                              client_factory=None, credentials: Mapping[str, str] | None = None) -> EmbeddingProvider:
     if settings.capability != 'embedding':
         raise ProviderConfigurationError('Provider was not configured for embeddings')
     if settings.provider == 'local':
         factory = embedding_factory or get_embedding_provider
         return factory(model_path=settings.model, context_size=settings.context_size,
                        gpu_layers=settings.gpu_layers)
-    client = _create_client(settings, client_factory)
+    client = _create_client(settings, client_factory, credentials=credentials)
     adapter = OpenAIEmbeddingProvider if settings.provider == 'openai' else LlamaServerEmbeddingProvider
     return adapter(settings, client=client, owns_client=True)
 
 
 def create_inference_provider(settings: ProviderSettings, *, inference_factory=None,
-                              client_factory=None) -> InferenceProvider:
+                              client_factory=None, credentials: Mapping[str, str] | None = None) -> InferenceProvider:
     if settings.capability != 'inference':
         raise ProviderConfigurationError('Provider was not configured for inference')
     if settings.provider == 'local':
         return (inference_factory or LocalInferenceProvider)(settings)
-    client = _create_client(settings, client_factory)
+    client = _create_client(settings, client_factory, credentials=credentials)
     adapter = OpenAIInferenceProvider if settings.provider == 'openai' else LlamaServerInferenceProvider
     return adapter(settings, client=client, owns_client=True)
 
 
-def create_discovery_provider(settings: DiscoverySettings, *, client_factory=None) -> ModelDiscovery:
+def create_discovery_provider(settings: DiscoverySettings, *, client_factory=None, credentials: Mapping[str, str] | None = None) -> ModelDiscovery:
     options = {'timeout': settings.timeout}
     if settings.base_url is not None:
         options['base_url'] = settings.base_url
     if settings.api_key_env is not None:
         options['api_key_env'] = settings.api_key_env
     validate_options(options, 'inference')
-    client = _create_client(settings, client_factory)
+    client = _create_client(settings, client_factory, credentials=credentials)
     adapter = OpenAIModelDiscovery if settings.provider == 'openai' else LlamaServerModelDiscovery
     return adapter(settings, client=client, owns_client=True)
 
 
 def _create_capability_provider(settings: ProviderSettings, *, embedding_factory=None, inference_factory=None,
-                    client_factory=None) -> EmbeddingProvider | InferenceProvider:
+                    client_factory=None, credentials: Mapping[str, str] | None = None) -> EmbeddingProvider | InferenceProvider:
     """Dispatch to a focused capability adapter."""
     if settings.capability == 'embedding':
         return create_embedding_provider(settings, embedding_factory=embedding_factory,
-                                         client_factory=client_factory)
+                                         client_factory=client_factory, credentials=credentials)
     if settings.capability == 'inference':
         return create_inference_provider(settings, inference_factory=inference_factory,
-                                         client_factory=client_factory)
+                                         client_factory=client_factory, credentials=credentials)
     raise ProviderConfigurationError('Unsupported provider capability')
 
 
 def create_provider(settings: ProviderSettings, *, embedding_factory=None, inference_factory=None,
-                    client_factory=None) -> EmbeddingProvider | InferenceProvider:
+                    client_factory=None, credentials: Mapping[str, str] | None = None) -> EmbeddingProvider | InferenceProvider:
     """Legacy dispatcher retaining combined remote adapters and injection hooks."""
     if settings.capability not in ('embedding', 'inference'):
         raise ProviderConfigurationError('Unsupported provider capability')
     if settings.provider == 'local':
         return _create_capability_provider(settings, embedding_factory=embedding_factory,
-                                           inference_factory=inference_factory, client_factory=client_factory)
-    client = _create_client(settings, client_factory)
+                                           inference_factory=inference_factory, client_factory=client_factory, credentials=credentials)
+    client = _create_client(settings, client_factory, credentials=credentials)
     adapter = OpenAIProvider if settings.provider == 'openai' else LlamaServerProvider
     return adapter(settings, client=client, owns_client=True)
 

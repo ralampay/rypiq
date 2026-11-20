@@ -64,8 +64,9 @@ def test_diagnostics_preloads_environment(local_environment, monkeypatch):
 
 
 def test_cli_preloads_before_dispatch(local_environment, monkeypatch, capsys):
-    def execute(args):
-        assert os.environ['PRELOAD_TEST_PASSWORD'] == 'local-secret'
+    def execute(args, *, config):
+        assert config.credentials['PRELOAD_TEST_PASSWORD'] == 'local-secret'
+        assert 'PRELOAD_TEST_PASSWORD' not in os.environ
         return {}
     monkeypatch.setattr(cli, 'execute', execute)
     cli.main(['applications:list'])

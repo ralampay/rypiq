@@ -44,7 +44,7 @@ class PostgreSQLApplicationRepository(ApplicationRepository):
         document_count = sa.select(sa.func.count(documents.c.id)).where(
             documents.c.application_id == self.table.c.id).scalar_subquery()
         statement = sa.select(
-            self.table.c.id, self.table.c.name, self.table.c.provision_type,
+            self.table.c.id, self.table.c.name, self.table.c.embedding_provision_type, self.table.c.inference_provision_type,
             self.table.c.embedding_model, self.table.c.embedding_size,
             self.table.c.inference_model, document_count.label('document_count'),
         ).order_by(self.table.c.id).limit(limit).offset(offset)

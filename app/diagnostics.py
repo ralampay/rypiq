@@ -1,100 +1,70 @@
-"""Read-only configuration diagnostics at the application composition boundary."""
+"""Read-only readiness checks against a captured configuration snapshot."""
 import os
 from pathlib import Path
-import re
 
-import yaml
-
-from app.environment import load_environment
-
-from app.database.config import PROJECT_ROOT, validate_config
+from app.config import AppConfig, load_config
 from app.database.diagnostics import check_database
+from app.exceptions import ConfigurationError
 from app.models.diagnostics import ConfigurationCheck, ConfigurationReport
-from app.storage.config import load_storage_config
-from app.providers.catalog import DEFAULT_CATALOG, load_catalog
 
 
-def _section(path: Path, environment: str, name: str) -> tuple[dict | None, ConfigurationCheck]:
-    location = f'{path} (environment: {environment})'
+def _location(config: AppConfig, section: str, environment: str) -> str:
+    return f'{config.sources.get(section, "injected settings")} (environment: {environment})'
+
+
+def _failure(config: AppConfig, section: str, name: str, error: ConfigurationError) -> ConfigurationCheck:
+    issue = config.issues.get(section)
+    status = 'REQUIRED' if issue is not None and issue.required else 'INVALID'
+    if section == 'catalog':
+        status = 'OPTIONAL'
+    selected = config.credentials.get('STORAGE_ENV', config.environment) if section == 'storage' else config.environment
+    detail = f'{_location(config, section, selected)}; {error}'
+    if section == 'database':
+        detail += '; required settings include adapter, host, user, database, and a valid port.'
+    return ConfigurationCheck(name, status, detail)
+
+
+def _database_checks(config: AppConfig) -> list[ConfigurationCheck]:
     try:
-        raw = yaml.safe_load(path.read_text(encoding='utf-8'))
-    except FileNotFoundError:
-        return None, ConfigurationCheck(name, 'REQUIRED', f'{location}; create this configuration file.')
-    except (OSError, UnicodeError, yaml.YAMLError):
-        return None, ConfigurationCheck(name, 'INVALID', f'{location}; check file permissions and YAML syntax.')
-    if not isinstance(raw, dict) or not isinstance(raw.get(environment), dict):
-        return None, ConfigurationCheck(name, 'INVALID', f'{location}; add the selected environment as a YAML mapping.')
-    return raw[environment], ConfigurationCheck(name, 'COMPLETE', location)
+        settings = config.require_database()
+    except ConfigurationError as error:
+        return [_failure(config, 'database', 'Database configuration', error)]
+    return [ConfigurationCheck('Database configuration', 'COMPLETE',
+                               _location(config, 'database', config.environment)),
+            *check_database(settings=settings.as_dict())]
 
 
-def _database_checks() -> list[ConfigurationCheck]:
-    path = Path(os.getenv('RYPIQ_DATABASE_CONFIG', PROJECT_ROOT / 'config/database.yml')).expanduser().resolve()
-    environment = os.getenv('DATABASE_ENV', 'development')
-    settings, check = _section(path, environment, 'Database configuration')
-    if settings is None:
-        return [check]
-    missing = [key for key in ('adapter', 'host', 'user', 'database') if key not in settings]
-    if missing:
-        return [ConfigurationCheck(check.name, 'REQUIRED', f'{check.detail}; add keys: {", ".join(missing)}.')]
-    credentials = []
-    if 'password_env' in settings:
-        variable = settings['password_env']
-        if not isinstance(variable, str) or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', variable) is None:
-            return [ConfigurationCheck(check.name, 'INVALID', f'{check.detail}; password_env must name an environment variable.')]
-        if variable not in os.environ:
-            credentials.append(ConfigurationCheck('Database credentials', 'REQUIRED', f'export {variable} before running RyPiq.'))
-            # Validate the remaining settings independently of the absent credential.
-            settings = {key: value for key, value in settings.items() if key != 'password_env'}
-        else:
-            credentials.append(ConfigurationCheck('Database credentials', 'COMPLETE', f'{variable} is set (value hidden).'))
+def _storage_checks(config: AppConfig) -> list[ConfigurationCheck]:
     try:
-        settings = validate_config(settings)
-    except (ValueError, TypeError):
-        check = ConfigurationCheck(check.name, 'INVALID', f'{check.detail}; use adapter postgresql, valid host/user/database, '
-                                   'a separate maintenance database, and valid port/dimensions. See config/database.yml.')
-    results = [check, *credentials]
-    if all(item.status == 'COMPLETE' for item in results):
-        results.extend(check_database(settings=settings))
-    return results
-
-
-def _storage_checks() -> list[ConfigurationCheck]:
-    path = Path(os.getenv('RYPIQ_STORAGE_CONFIG', PROJECT_ROOT / 'config/storage.yml')).expanduser().resolve()
-    environment = os.getenv('STORAGE_ENV', os.getenv('DATABASE_ENV', 'development'))
-    settings, check = _section(path, environment, 'Storage configuration')
-    if settings is None:
-        return [check]
-    if settings.get('adapter') != 'local' or not isinstance(settings.get('root'), str) or not settings['root'].strip():
-        return [ConfigurationCheck(check.name, 'INVALID', f'{check.detail}; set adapter: local and a nonempty root path.')]
+        root = config.require_storage().root
+    except ConfigurationError as error:
+        return [_failure(config, 'storage', 'Storage configuration', error)]
+    check = ConfigurationCheck('Storage configuration', 'COMPLETE', _location(
+        config, 'storage', config.credentials.get('STORAGE_ENV', config.environment)))
     try:
-        # Reuse storage's path resolution, including its config-directory convention.
-        root = Path(load_storage_config()['root'])
         existing = root
         while not existing.exists() and existing != existing.parent:
             existing = existing.parent
         if not existing.is_dir():
-            detail = f'{root}; the root or an existing ancestor is not a directory. Choose a directory path.'
-            status = 'INVALID'
+            status, detail = 'INVALID', f'{root}; choose a directory path.'
         elif not os.access(existing, os.W_OK | os.X_OK | (os.R_OK if existing == root else 0)):
-            detail = f'{root}; check directory permissions on {existing}.'
-            status = 'INVALID'
+            status, detail = 'INVALID', f'{root}; check directory permissions on {existing}.'
         else:
-            detail = f'{root}; ' + ('directory permissions available.' if existing == root else 'directory can be created; parent permissions available.')
             status = 'COMPLETE'
-    except (OSError, ValueError, TypeError, KeyError, RuntimeError, yaml.YAMLError):
+            detail = f'{root}; ' + ('directory permissions available.' if existing == root
+                                   else 'directory can be created; parent permissions available.')
+    except (OSError, ValueError, RuntimeError):
         status, detail = 'INVALID', 'Cannot inspect storage root; check its path and filesystem permissions.'
     return [check, ConfigurationCheck('Storage path', status, detail)]
 
 
-def _catalog_checks() -> list[ConfigurationCheck]:
-    path = Path(os.getenv('RYPIQ_MODELS_CONFIG', DEFAULT_CATALOG)).expanduser().resolve()
-    if not path.exists():
-        return [ConfigurationCheck('Model catalog', 'OPTIONAL', f'{path}; absent. Use direct model paths/IDs or create an alias catalog.')]
+def _catalog_checks(config: AppConfig) -> list[ConfigurationCheck]:
     try:
-        catalog = load_catalog(path)
-    except (OSError, ValueError, TypeError, UnicodeError):
-        return [ConfigurationCheck('Model catalog', 'OPTIONAL', f'{path}; invalid or unreadable. Check YAML and model options before using aliases.')]
-    checks = [ConfigurationCheck('Model catalog', 'COMPLETE', f'{path}; optional aliases configured.')]
+        catalog = config.require_catalog()
+    except ConfigurationError as error:
+        return [_failure(config, 'catalog', 'Model catalog', error)]
+    checks = [ConfigurationCheck('Model catalog', 'COMPLETE',
+                                 f'{config.sources.get("catalog", "injected catalog")}; optional aliases configured.')]
     for alias, entry in catalog.items():
         if entry.provider == 'local':
             model = Path(entry.model)
@@ -106,24 +76,23 @@ def _catalog_checks() -> list[ConfigurationCheck]:
             checks.append(ConfigurationCheck(f'Model @{alias}', 'OPTIONAL', 'Remote availability is not checked; verify saved application provider settings.'))
         variable = entry.options.get('api_key_env', 'OPENAI_API_KEY' if entry.provider == 'openai' else None)
         if variable:
-            if os.getenv(variable):
+            if config.credentials.get(variable):
                 checks.append(ConfigurationCheck(f'Credential for @{alias}', 'COMPLETE', f'{variable} is set (value hidden).'))
             else:
-                checks.append(ConfigurationCheck(f'Credential for @{alias}', 'OPTIONAL', f'export {variable} before using this alias.'))
+                checks.append(ConfigurationCheck(f'Credential for @{alias}', 'OPTIONAL', f'export {variable} before running RyPiq.'))
     return checks
 
 
-def check_configuration() -> ConfigurationReport:
-    """Inspect local configuration and PostgreSQL readiness without changing data."""
-    load_environment()
+def check_configuration(*, config: AppConfig | None = None) -> ConfigurationReport:
+    """Inspect current readiness without reloading settings or changing data."""
+    config = load_config() if config is None else config
     checks = []
     for name, inspect in (('Database configuration', _database_checks),
                           ('Storage configuration', _storage_checks),
                           ('Model catalog', _catalog_checks)):
         try:
-            checks.extend(inspect())
+            checks.extend(inspect(config))
         except (OSError, ValueError, TypeError, RuntimeError, UnicodeError):
-            # Invalid paths and permission failures must not prevent independent checks.
             checks.append(ConfigurationCheck(name, 'OPTIONAL' if name == 'Model catalog' else 'INVALID',
                                              'Cannot inspect configuration; check the configured path and permissions.'))
-    return ConfigurationReport(os.getenv('DATABASE_ENV', 'development'), tuple(checks))
+    return ConfigurationReport(config.environment, tuple(checks))

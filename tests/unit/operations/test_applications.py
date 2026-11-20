@@ -11,7 +11,7 @@ from app.operations.documents.search import SearchDocuments
 
 @pytest.mark.parametrize('changes', [
     {'name': ''}, {'embedding_model': ' '}, {'embedding_size': True},
-    {'embedding_size': 0}, {'embedding_size': 16001}, {'provision_type': 'unknown'},
+    {'embedding_size': 0}, {'embedding_size': 16001}, {'embedding_provision_type': 'unknown'}, {'inference_provision_type': 'unknown'},
     {'data': []}, {'data': {'invalid': float('nan')}},
 ])
 def test_invalid_application_never_writes(changes):
@@ -40,7 +40,7 @@ def test_remote_provider_is_borrowed_and_inputs_are_unprefixed(tmp_path, provide
     source = tmp_path / 'input.txt'
     source.write_text('hello')
     application = Application(name='test', embedding_model='remote/model', embedding_size=2,
-                              provision_type=provider_type)
+                              embedding_provision_type=provider_type, inference_provision_type=provider_type)
     provider, repository, storage = Mock(model_name='remote/model'), Mock(name_exists=Mock(return_value=False)), Mock()
     provider.embed.return_value = [[1., 0.]]
     storage.save.return_value = Mock(key='stored', content_type='text/plain', checksum='checksum')

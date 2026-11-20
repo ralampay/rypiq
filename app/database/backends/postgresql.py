@@ -6,6 +6,9 @@ from app.database.errors import database_errors
 from app.resources import close_resource
 from app.database.base import DatabaseBackend
 from app.database.repositories.application import ApplicationRepository
+from app.database.repositories.document import DocumentRepository
+from app.database.repositories.processing_job import ProcessingJobRepository
+from app.models.processing_job import ProcessingJob
 from app.database.config import validate_config
 from app.database.postgresql_connection import create_database, database_url, drop_database
 from app.database.schema import build_metadata, initialize_schema
@@ -69,6 +72,14 @@ class PostgreSQLBackend(DatabaseBackend):
     def applications(self) -> ApplicationRepository:
         from app.database.repositories.postgresql.application import PostgreSQLApplicationRepository
         return PostgreSQLApplicationRepository(self.engine, self.metadata.tables['public.applications'])
+
+    def processing_jobs(self) -> ProcessingJobRepository:
+        from app.database.repositories.postgresql.processing_job import PostgreSQLProcessingJobRepository
+        return PostgreSQLProcessingJobRepository(self.engine, self.metadata.tables['public.document_processing_jobs'])
+
+    def processing_documents(self, job: ProcessingJob) -> DocumentRepository:
+        from app.database.repositories.postgresql.document import PostgreSQLDocumentRepository
+        return PostgreSQLDocumentRepository(self.engine, self.metadata.tables['public.documents'], processing_claim=job)
 
     def close(self):
         close_resource(self.engine.dispose)

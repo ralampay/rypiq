@@ -15,7 +15,7 @@ def test_chat_cli_dispatches_to_application(monkeypatch, capsys):
     fake = Mock(return_value=ChatResult('answer', 'model', 'stop'))
     monkeypatch.setattr(application, 'chat', fake, raising=False)
     id = uuid4()
-    cli.main(['chat', 'hello', '--application-id', str(id), '--system', 'Be brief'])
+    cli.main(['chat', 'hello', '--application-id', str(id)])
     assert json.loads(capsys.readouterr().out)['text'] == 'answer'
     assert fake.call_args.kwargs['application_id'] == id
 
@@ -29,13 +29,13 @@ def test_model_list_cli_supports_catalog_without_database(monkeypatch, capsys):
 
 
 def test_remote_search_uses_application_endpoint_and_no_local_model(monkeypatch):
-    app = Application(name='a', embedding_model='remote-model', provision_type='llama-server', embedding_size=2,
+    app = Application(name='a', embedding_model='remote-model', embedding_provision_type='llama-server', inference_provision_type='llama-server', embedding_size=2,
                       data={'provider_config': {'embedding': {'base_url': 'http://localhost:8001/v1'}}})
     database = MagicMock()
     database.__enter__.return_value = database
     database.applications.return_value.get.return_value = app
     database.embeddings.return_value.search_by_vector.return_value = []
-    monkeypatch.setattr(application, 'get_database', lambda: database)
+    monkeypatch.setattr(application, 'get_database', lambda config=None: database)
     model = Mock(model_name='remote-model')
     model.embed.return_value = [[1., 0.]]
     captured = []
@@ -78,7 +78,7 @@ from app.providers.contracts import ChatMessage, ModelInfo
 def configured_backend(monkeypatch):
     database = MagicMock()
     database.__enter__.return_value = database
-    monkeypatch.setattr(application, 'get_database', lambda: database)
+    monkeypatch.setattr(application, 'get_database', lambda config=None: database)
     return database
 
 
@@ -93,17 +93,19 @@ def test_valid_local_overrides_and_remote_override_rejection():
     result = application._application_settings(value, 'embedding', model_path='another/model.gguf',
                                                context_size=512, gpu_layers=-1)
     assert (result.model, result.context_size, result.gpu_layers) == ('another/model.gguf', 512, -1)
-    remote = replace(value, provision_type='openai')
+    remote = replace(value, embedding_provision_type='openai', inference_provision_type='openai')
     with pytest.raises(ValueError):
         application._application_settings(remote, 'embedding', model_path='model.gguf')
     with pytest.raises(ValueError):
         application._application_settings(remote, 'embedding', context_size=512)
 
 
-def test_chat_application_and_standalone_borrow_provider(tmp_path, monkeypatch, configured_backend):
-    value = Application(name='a', embedding_model='embed', inference_model='chat')
+def test_chat_application_borrows_providers(tmp_path, monkeypatch, configured_backend):
+    value = Application(name='a', embedding_model='embed', inference_model='chat', embedding_size=2)
     configured_backend.applications.return_value.get.return_value = value
-    model = Mock()
+    model = Mock(model_name='embed')
+    model.embed.return_value = [[1., 0.]]
+    configured_backend.embeddings.return_value.search_by_vector.return_value = []
     expected = ChatResult('answer', 'chat', 'stop')
     model.chat.return_value = expected
     settings = []
@@ -113,17 +115,18 @@ def test_chat_application_and_standalone_borrow_provider(tmp_path, monkeypatch, 
         yield model
     monkeypatch.setattr(application, 'open_provider', open_provider)
     messages = [ChatMessage('assistant', 'previous'), ChatMessage('user', 'next')]
-    assert application.chat(messages=messages, application_id=value.id) is expected
+    result = application.chat(messages=messages, application_id=value.id)
+    assert result.text == expected.text
+    assert result.sources == []
     assert settings[-1].model == 'chat'
-    assert application.chat(messages=messages, model_path='direct.gguf', temperature=0.2) is expected
-    assert settings[-1].model == 'direct.gguf'
+    assert [setting.capability for setting in settings] == ['embedding', 'inference']
     model.close.assert_not_called()
     configured_backend.__exit__.assert_called()
 
 
 @pytest.mark.parametrize('options', [{}, {'application_id': uuid4(), 'model_path': 'model'}])
-def test_chat_requires_exactly_one_selection(options):
-    with pytest.raises(ValueError):
+def test_chat_requires_application_without_model_override(options):
+    with pytest.raises(TypeError):
         application.chat(messages=[ChatMessage('user', 'hello')], **options)
 
 
@@ -139,6 +142,8 @@ def test_chat_missing_inference_fails_before_provider(monkeypatch, configured_ba
 
 
 def test_model_listing_modes_and_endpoint_deduplication(monkeypatch, configured_backend):
+    from pathlib import Path
+    monkeypatch.setenv('RYPIQ_MODELS_CONFIG', str(Path(__file__).resolve().parents[3] / 'config/models.yml'))
     assert application.list_models()
     configured_backend.__enter__.assert_not_called()
     with pytest.raises(ValueError):
@@ -146,7 +151,7 @@ def test_model_listing_modes_and_endpoint_deduplication(monkeypatch, configured_
     local = Application(name='a', embedding_model='local')
     configured_backend.applications.return_value.get.return_value = local
     assert all(model.provider == 'local' for model in application.list_models(application_id=local.id, discover=True))
-    remote = replace(local, provision_type='openai')
+    remote = replace(local, embedding_provision_type='openai', inference_provision_type='openai')
     configured_backend.applications.return_value.get.return_value = remote
     settings = []
     @contextmanager
@@ -205,7 +210,7 @@ def test_application_update_cli_merges_fields_and_redacts_key(monkeypatch, capsy
 
 def test_chat_cli_without_system_and_model_list_serialization(monkeypatch, capsys):
     monkeypatch.setattr(application, 'chat', lambda **kwargs: ChatResult('text', 'model', 'stop'))
-    cli.main(['chat', 'hi', '--model', 'model.gguf'])
+    cli.main(['chat', 'hi', '--application-id', str(uuid4())])
     assert json.loads(capsys.readouterr().out)['text'] == 'text'
     monkeypatch.setattr(application, 'list_models', lambda **kwargs: [ModelInfo('id', 'openai', (), 'discovered', 'available', 'id')])
     cli.main(['models:list'])
@@ -246,7 +251,7 @@ def test_legacy_ingestion_honors_saved_runtime_options(tmp_path, monkeypatch, do
 def test_legacy_local_composition_rejects_remote_before_effects():
     from app.application import ingest_document
     storage, repository = Mock(name_exists=Mock(return_value=False)), Mock()
-    value = Application(name='a', embedding_model='remote', provision_type='openai')
+    value = Application(name='a', embedding_model='remote', embedding_provision_type='openai', inference_provision_type='openai')
     with pytest.raises(ValueError, match='injected provider'):
         ingest_document('unused.txt', storage, repository, 10, 10, application=value, name='test document')
     assert not storage.mock_calls and not repository.mock_calls
@@ -258,7 +263,7 @@ def test_mismatched_provider_identity_marks_error_without_embeddings(tmp_path, p
     from app.operations.documents.search import SearchDocuments
     source = tmp_path / 'file.txt'
     source.write_text('hello')
-    value = Application(name='a', embedding_model='configured', provision_type=provider_type, embedding_size=2)
+    value = Application(name='a', embedding_model='configured', embedding_provision_type=provider_type, inference_provision_type=provider_type, embedding_size=2)
     model = Mock(model_name='wrong')
     model.embed.return_value = [[1., 0.]]
     repository, storage = document_resources(source=source)
@@ -291,11 +296,16 @@ def test_direct_models_do_not_require_catalog_file(tmp_path, monkeypatch, config
     created = application.create_application(name='direct', embedding_model='direct.gguf', inference_model='chat.gguf')
     application.update_application(application=created)
     application._application_settings(created, 'embedding', model_path='other/direct.gguf')
+    configured_backend.applications.return_value.get.return_value = created
+    configured_backend.embeddings.return_value.search_by_vector.return_value = []
     @contextmanager
-    def open_provider(*args, **kwargs):
-        yield Mock(chat=Mock(return_value=ChatResult('text', 'chat', 'stop')))
+    def open_provider(settings, **kwargs):
+        if settings.capability == 'embedding':
+            yield model
+        else:
+            yield Mock(chat=Mock(return_value=ChatResult('text', 'chat', 'stop')))
     monkeypatch.setattr(application, 'open_provider', open_provider)
-    assert application.chat(messages=[ChatMessage('user', 'hello')], model_path='chat.gguf').text == 'text'
+    assert application.chat(messages=[ChatMessage('user', 'hello')], application_id=created.id).text == 'text'
     catalog.assert_not_called()
 
 
@@ -305,7 +315,7 @@ def test_create_snapshots_direct_local_paths(tmp_path, monkeypatch, configured_b
     repository = configured_backend.applications.return_value
     repository.create.side_effect = lambda value: value
     result = application.create_application(name='a', embedding_model='models/embed.gguf',
-        inference_model='models/chat.gguf', embedding_size=768, provision_type=provider)
+        inference_model='models/chat.gguf', embedding_size=768, embedding_provision_type=provider, inference_provision_type=provider)
     monkeypatch.chdir(tmp_path.parent)
     prefix = str(tmp_path) + '/' if provider == 'local' else ''
     assert result.embedding_model == prefix + 'models/embed.gguf'
@@ -326,7 +336,7 @@ def test_shared_session_across_embedding_ingestion_search_and_chat(tmp_path, mon
     source.write_text('hello')
     document_resources(configured_backend.documents.return_value)
     storage = LocalStorage(root=tmp_path / 'objects')
-    monkeypatch.setattr('app.storage.factory.get_storage', lambda: storage)
+    monkeypatch.setattr('app.storage.factory.get_storage', lambda config=None: storage)
     embedding = Mock(model_name='weights.gguf')
     embedding.embed.return_value = [[1., 0.]]
     inference = Mock()
@@ -363,12 +373,14 @@ def test_session_rejects_per_call_embedding_factory_before_loading(tmp_path):
 
 
 def test_remote_chat_bypasses_local_session(monkeypatch, configured_backend):
-    value = Application(name='a', embedding_model='remote', inference_model='chat', provision_type='openai')
+    value = Application(name='a', embedding_model='remote', inference_model='chat', embedding_provision_type='openai', inference_provision_type='openai', embedding_size=2)
     configured_backend.applications.return_value.get.return_value = value
-    provider = Mock()
+    provider = Mock(model_name='remote')
+    provider.embed.return_value = [[1., 0.]]
+    configured_backend.embeddings.return_value.search_by_vector.return_value = []
     provider.chat.return_value = ChatResult('answer', 'chat', 'stop')
     @contextmanager
-    def open_remote(settings):
+    def open_remote(settings, *, credentials=None):
         try:
             yield provider
         finally:
@@ -377,4 +389,4 @@ def test_remote_chat_bypasses_local_session(monkeypatch, configured_backend):
     session = Mock()
     application.chat(messages=[ChatMessage('user', 'hi')], application_id=value.id, model_session=session)
     session.open_provider.assert_not_called()
-    provider.close.assert_called_once()
+    assert provider.close.call_count == 2

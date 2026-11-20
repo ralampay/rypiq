@@ -20,7 +20,7 @@ def test_live_remote_embedding_inference_and_discovery(provider, variable):
     if not path:
         pytest.skip(f'Set {variable} to explicitly opt in to live provider requests')
     options = json.loads(Path(path).read_text())
-    application = Application(name='live integration', provision_type=provider, **options)
+    application = Application(name='live integration', embedding_provision_type=provider, inference_provision_type=provider, **options)
     with open_provider(settings_for(application, 'embedding')) as embedding:
         vectors = embedding.embed(['Hello world'])
         assert len(vectors) == 1 and len(vectors[0]) == application.embedding_size

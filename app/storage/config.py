@@ -10,19 +10,13 @@ from app.exceptions import StorageConfigurationError
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def load_storage_config() -> dict:
-    load_environment()
-    config_file = Path(
-        os.getenv(
-            "RYPIQ_STORAGE_CONFIG",
-            PROJECT_ROOT / "config/storage.yml",
-        )
-    ).expanduser().resolve()
-
-    environment = os.getenv(
-        "STORAGE_ENV",
-        os.getenv("DATABASE_ENV", "development"),
-    )
+def load_storage_config(*, environ=None, project_root=None) -> dict:
+    if environ is None:
+        load_environment()
+    values = os.environ if environ is None else environ
+    root = PROJECT_ROOT if project_root is None else Path(project_root)
+    config_file = Path(values.get('RYPIQ_STORAGE_CONFIG', root / 'config/storage.yml')).expanduser().resolve()
+    environment = values.get('STORAGE_ENV', values.get('DATABASE_ENV', 'development'))
 
     try:
         with config_file.open(encoding="utf-8") as file:

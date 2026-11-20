@@ -14,7 +14,7 @@ def test_legacy_local_defaults_and_remote_plain_inputs():
     assert settings.model == 'model.gguf'
     assert settings.document_prefix == 'title: none | text: '
     assert settings.query_prefix == 'task: search result | query: '
-    remote = settings_for(replace(local, provision_type='openai'), 'embedding')
+    remote = settings_for(replace(local, embedding_provision_type='openai', inference_provision_type='openai'), 'embedding')
     assert remote.base_url == 'https://api.openai.com/v1'
     assert remote.api_key_env == 'OPENAI_API_KEY'
     assert remote.document_prefix == remote.query_prefix == ''
@@ -22,7 +22,7 @@ def test_legacy_local_defaults_and_remote_plain_inputs():
 
 
 def test_separate_servers_and_dimension_configuration():
-    app = Application(name='a', provision_type='llama-server', embedding_model='embed', inference_model='chat',
+    app = Application(name='a', embedding_provision_type='llama-server', inference_provision_type='llama-server', embedding_model='embed', inference_model='chat',
                       embedding_size=3, data={'provider_config': {
                           'embedding': {'base_url': 'http://localhost:8001/v1', 'dimensions': 3},
                           'inference': {'base_url': 'http://localhost:8002/v1', 'api_key_env': 'LLAMA_KEY'},
@@ -47,7 +47,7 @@ def test_invalid_options_are_rejected_without_echoing_values(options):
 
 
 def test_missing_inference_and_server_location():
-    app = Application(name='a', embedding_model='embed', provision_type='llama-server')
+    app = Application(name='a', embedding_model='embed', embedding_provision_type='llama-server', inference_provision_type='llama-server')
     with pytest.raises(ValueError):
         settings_for(app, 'embedding')
     with pytest.raises(ValueError):

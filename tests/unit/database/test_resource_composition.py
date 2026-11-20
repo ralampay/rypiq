@@ -9,7 +9,7 @@ from app.database.schema import build_metadata
 
 def test_legacy_repository_factory_returns_owned_repository(monkeypatch):
     backend = Mock()
-    monkeypatch.setattr(db, 'get_database', lambda: backend)
+    monkeypatch.setattr(db, 'get_database', lambda config=None: backend)
     assert db.get_document_repository() is backend.documents.return_value
     backend.close.assert_not_called()
 
@@ -17,7 +17,7 @@ def test_legacy_repository_factory_returns_owned_repository(monkeypatch):
 def test_legacy_repository_factory_closes_after_setup_failure(monkeypatch):
     backend = Mock()
     backend.documents.side_effect = ValueError('cannot construct repository')
-    monkeypatch.setattr(db, 'get_database', lambda: backend)
+    monkeypatch.setattr(db, 'get_database', lambda config=None: backend)
     with pytest.raises(ValueError):
         db.get_document_repository()
     backend.close.assert_called_once()

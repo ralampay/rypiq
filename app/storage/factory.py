@@ -1,3 +1,9 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.config import AppConfig, StorageSettings
+
 from app.exceptions import StorageConfigurationError
 from app.storage.base import ObjectStorage
 from app.storage.config import load_storage_config
@@ -5,8 +11,13 @@ from app.storage.providers.local import LocalStorage
 
 
 def get_storage(
-    config: dict | None = None,
+    config: dict | AppConfig | StorageSettings | None = None,
 ) -> ObjectStorage:
+    from app.config import AppConfig, StorageSettings
+    if isinstance(config, AppConfig):
+        config = config.require_storage()
+    if isinstance(config, StorageSettings):
+        config = config.as_dict()
     settings = (
         config
         if config is not None

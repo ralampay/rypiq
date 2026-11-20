@@ -1,4 +1,5 @@
 """Application resources with explicit database connection-pool ownership."""
+from app.config import AppConfig, load_config
 from dataclasses import dataclass, field
 
 from app.resources import close_resource
@@ -35,11 +36,12 @@ class ApplicationContext:
         close_resource(self.close, exc)
 
 
-def create_context() -> ApplicationContext:
-    database = get_database()
+def create_context(*, config: AppConfig | None = None) -> ApplicationContext:
+    config = load_config() if config is None else config
+    database = get_database(config)
     try:
         return ApplicationContext(
-            documents=database.documents(), storage=get_storage(), database=database,
+            documents=database.documents(), storage=get_storage(config), database=database,
         )
     except BaseException as failure:
         close_resource(database.close, failure)

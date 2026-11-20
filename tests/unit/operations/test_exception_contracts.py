@@ -29,7 +29,7 @@ def test_setup_cleanup_does_not_replace_original_failure(monkeypatch):
     failure = ValueError('storage configuration failed')
     backend = Mock()
     backend.close.side_effect = RuntimeError('sensitive cleanup detail')
-    monkeypatch.setattr(context, 'get_database', lambda: backend)
+    monkeypatch.setattr(context, 'get_database', lambda config=None: backend)
     monkeypatch.setattr(context, 'get_storage', Mock(side_effect=failure))
     with pytest.raises(ValueError) as caught:
         context.create_context()

@@ -11,14 +11,14 @@ from app.providers.config import (
 
 
 def settings_for(application: Application, capability: str) -> ProviderSettings:
-    if capability not in CAPABILITIES or application.provision_type not in PROVIDERS:
+    if capability not in CAPABILITIES or getattr(application, capability + '_provision_type') not in PROVIDERS:
         raise ProviderConfigurationError('Unsupported provider capability')
     model = getattr(application, capability + '_model')
     if not isinstance(model, str) or not model.strip():
         raise ProviderConfigurationError('Application has no configured model for this capability')
     validate_provider_config(application.data, application.embedding_size)
     options = dict(application.data.get('provider_config', {}).get(capability, {}))
-    provider = application.provision_type
+    provider = getattr(application, capability + '_provision_type')
     if provider == 'local' and capability == 'embedding':
         options.setdefault('document_prefix', 'title: none | text: ')
         options.setdefault('query_prefix', 'task: search result | query: ')
@@ -40,7 +40,7 @@ def resolve_application(application: Application, catalog: dict[str, CatalogEntr
         model = getattr(application, capability + '_model')
         if model is None:
             continue
-        resolved, defaults = resolve_model(model, application.provision_type, capability, catalog)
+        resolved, defaults = resolve_model(model, getattr(application, capability + '_provision_type'), capability, catalog)
         models[capability + '_model'] = resolved
         if defaults:
             section = data.setdefault('provider_config', {}).setdefault(capability, {})
@@ -52,11 +52,11 @@ def resolve_application(application: Application, catalog: dict[str, CatalogEntr
 
 def discovery_settings_for(application: Application, capability: str) -> DiscoverySettings:
     """Resolve a configured endpoint without requiring a selected model."""
-    if capability not in CAPABILITIES or application.provision_type not in ('openai', 'llama-server'):
+    if capability not in CAPABILITIES or getattr(application, capability + '_provision_type') not in ('openai', 'llama-server'):
         raise ProviderConfigurationError('Unsupported discovery provider capability')
     validate_provider_config(application.data, application.embedding_size)
     options = application.data.get('provider_config', {}).get(capability, {})
-    provider = application.provision_type
+    provider = getattr(application, capability + '_provision_type')
     base_url = options.get('base_url', 'https://api.openai.com/v1' if provider == 'openai' else None)
     if provider == 'llama-server' and not base_url:
         raise ProviderConfigurationError('llama-server requires a base URL for the requested capability')

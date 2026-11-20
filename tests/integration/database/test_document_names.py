@@ -131,7 +131,7 @@ def seed_unnamed(backend):
     with backend.engine.begin() as connection:
         connection.exec_driver_sql('CREATE EXTENSION vector')
         old.create_all(connection)
-        connection.execute(old.tables['public.applications'].insert().values(**asdict(application)))
+        connection.execute(old.tables['public.applications'].insert().values(**shared_application_values(application)))
         connection.execute(old.tables['public.documents'].insert(), [
             {key: value for key, value in asdict(document).items() if key not in ('name', 'status')} for document in documents])
         chunk = Embedding(document_id=documents[0].id, content='keep', embedding=[1., 0.],
@@ -142,7 +142,7 @@ def seed_unnamed(backend):
 
 def test_name_migration_preserves_values_and_handles_generated_collisions(backend):
     application, originals, chunk = seed_unnamed(backend)
-    assert backend.migrate() == {'tables_created': []}
+    assert backend.migrate() == {'tables_created': ['document_processing_jobs']}
     loaded = backend.documents().list(application_id=application.id)
     assert [document.name for document in loaded] == [
         f'same ({UUID(int=1)}) (2)', f'same ({UUID(int=2)})',
@@ -173,3 +173,10 @@ def test_name_constraint_drift_rejected(backend, application, constraint):
         connection.exec_driver_sql(f'ALTER TABLE documents DROP CONSTRAINT {constraint}')
     with pytest.raises(ValueError, match='Incompatible'):
         backend.migrate()
+
+
+def shared_application_values(application):
+    values = asdict(application)
+    values['provision_type'] = values.pop('embedding_provision_type')
+    values.pop('inference_provision_type')
+    return values

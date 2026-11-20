@@ -24,7 +24,7 @@ def listing_database(monkeypatch):
 
 def records(count):
     return [ApplicationSummary(id=UUID(int=i + 1), name=f'Application {i}',
-                               provision_type='local', embedding_model='unused',
+                               embedding_provision_type='local', inference_provision_type='local', embedding_model='unused',
                                embedding_size=768, inference_model=None, document_count=0)
             for i in range(count)]
 
@@ -34,7 +34,7 @@ def test_text_lists_model_configuration(listing_database, capsys, options):
     database, repository, _ = listing_database
     values = records(2)
     values[1].document_count = 3
-    values[1].provision_type = 'openai'
+    values[1].embedding_provision_type = 'openai'
     values[1].embedding_model = 'text-embedding-model'
     values[1].embedding_size = 1536
     values[1].inference_model = 'chat-model'
@@ -43,12 +43,12 @@ def test_text_lists_model_configuration(listing_database, capsys, options):
     output = capsys.readouterr()
     lines = output.out.splitlines()
     assert re.split(r' {2,}', lines[0]) == [
-        'ID', 'NAME', 'PROVISION TYPE', 'EMBEDDING MODEL', 'EMBEDDING SIZE', 'INFERENCE MODEL', 'DOCUMENTS']
+        'ID', 'NAME', 'EMBEDDING PROVIDER', 'INFERENCE PROVIDER', 'EMBEDDING MODEL', 'EMBEDDING SIZE', 'INFERENCE MODEL', 'DOCUMENTS']
     assert [re.split(r' {2,}', line) for line in lines[1:]] == [
-        [str(values[0].id), 'Application 0', 'local', 'unused', '768', '-', '0'],
-        [str(values[1].id), 'Application 1', 'openai', 'text-embedding-model', '1536', 'chat-model', '3']]
+        [str(values[0].id), 'Application 0', 'local', 'local', 'unused', '768', '-', '0'],
+        [str(values[1].id), 'Application 1', 'openai', 'local', 'text-embedding-model', '1536', 'chat-model', '3']]
     for heading, cells in [('NAME', ['Application 0', 'Application 1']),
-                           ('PROVISION TYPE', ['local', 'openai']),
+                           ('EMBEDDING PROVIDER', ['local', 'openai']),
                            ('EMBEDDING MODEL', ['unused', 'text-embedding-model']),
                            ('EMBEDDING SIZE', ['768', '1536']),
                            ('INFERENCE MODEL', ['-', 'chat-model'])]:
@@ -67,12 +67,15 @@ def test_json_lists_every_page_and_public_model_configuration(listing_database, 
     repository.list_summaries.side_effect = lambda *, limit, offset: values[offset:offset + limit]
     cli.main(['applications:list', '--output', 'json'])
     assert json.loads(capsys.readouterr().out) == [
-        {'id': str(value.id), 'name': value.name, 'provision_type': value.provision_type,
+        {'id': str(value.id), 'name': value.name, 'embedding_provision_type': value.embedding_provision_type,
+         'inference_provision_type': value.inference_provision_type,
          'embedding_model': value.embedding_model, 'embedding_size': value.embedding_size,
          'inference_model': value.inference_model, 'document_count': 0} for value in values]
     assert repository.list_summaries.call_args_list == [
         call(limit=100, offset=offset) for offset in range(0, count + 1, 100)]
-    factory.assert_called_once_with()
+    from app.config import AppConfig
+    factory.assert_called_once()
+    assert isinstance(factory.call_args.args[0], AppConfig)
     database.__exit__.assert_called_once_with(None, None, None)
     repository.close.assert_not_called()
 
@@ -81,7 +84,7 @@ def test_json_lists_every_page_and_public_model_configuration(listing_database, 
 def test_json_preserves_model_configuration_types_and_values(listing_database, capsys, inference_model):
     _, repository, _ = listing_database
     value = records(1)[0]
-    value.provision_type = 'openai'
+    value.embedding_provision_type = 'openai'
     value.embedding_model = 'embedding\tmodel'
     value.embedding_size = 1536
     value.inference_model = inference_model
@@ -89,7 +92,7 @@ def test_json_preserves_model_configuration_types_and_values(listing_database, c
     repository.list_summaries.return_value = [value]
     cli.main(['applications:list', '--output', 'json'])
     assert json.loads(capsys.readouterr().out) == [{
-        'id': str(value.id), 'name': value.name, 'provision_type': 'openai',
+        'id': str(value.id), 'name': value.name, 'embedding_provision_type': 'openai', 'inference_provision_type': 'local',
         'embedding_model': 'embedding\tmodel', 'embedding_size': 1536,
         'inference_model': inference_model, 'document_count': 12}]
 
@@ -97,7 +100,7 @@ def test_json_preserves_model_configuration_types_and_values(listing_database, c
 def test_empty_text_has_headers(listing_database, capsys):
     cli.main(['applications:list'])
     assert capsys.readouterr().out == (
-        'ID  NAME  PROVISION TYPE  EMBEDDING MODEL  EMBEDDING SIZE  INFERENCE MODEL  DOCUMENTS\n')
+        'ID  NAME  EMBEDDING PROVIDER  INFERENCE PROVIDER  EMBEDDING MODEL  EMBEDDING SIZE  INFERENCE MODEL  DOCUMENTS\n')
 
 
 @pytest.mark.parametrize('output', ['text', 'json'])
@@ -128,8 +131,8 @@ def test_text_model_values_are_complete_and_safe(listing_database, capsys, model
     assert len(output.splitlines()) == 2
     cells = re.split(r' {2,}', output.splitlines()[1])
     expected = '-' if not model else json.dumps(model)[1:-1]
-    assert cells[3] == expected
-    assert cells[5] == expected
+    assert cells[4] == expected
+    assert cells[6] == expected
 
 
 def test_invalid_output_is_rejected_before_database_access(listing_database, capsys):

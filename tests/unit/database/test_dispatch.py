@@ -26,7 +26,7 @@ def test_python_database_execution_does_not_need_argparse(monkeypatch):
     backend = MagicMock()
     backend.__enter__.return_value = backend
     backend.create_database.return_value = {'created': True}
-    monkeypatch.setattr(commands, 'get_database', lambda: backend)
+    monkeypatch.setattr(commands, 'get_database', lambda config=None: backend)
     assert commands.execute_database_command('db:create') == {'created': True}
     backend.create_database.assert_called_once()
     backend.__exit__.assert_called_once()
@@ -45,7 +45,7 @@ def test_invalid_python_database_command_does_not_construct_resources(monkeypatc
 def test_legacy_database_adapter_preserves_result(monkeypatch):
     from app.database import commands
     calls = []
-    def execute(name):
+    def execute(name, *, config=None):
         calls.append(name)
         return {'tables_created': []}
     monkeypatch.setattr(commands, 'execute_database_command', execute)

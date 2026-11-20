@@ -189,12 +189,12 @@ def test_existing_storage_directory_is_complete(configuration, capsys):
 
 
 def test_unreadable_configuration_does_not_expose_os_error(configuration, monkeypatch, capsys):
-    original = Path.read_text
+    original = Path.open
     def read(path, *args, **kwargs):
         if path == configuration[0]:
             raise PermissionError('private-os-detail')
         return original(path, *args, **kwargs)
-    monkeypatch.setattr(Path, 'read_text', read)
+    monkeypatch.setattr(Path, 'open', read)
     code, report = invoke(capsys)
     assert code == 1 and 'permissions' in report
     assert 'private-os-detail' not in report

@@ -33,10 +33,10 @@ def test_installed_cli_lifecycle_outside_repository(invoke):
     assert missing.returncode != 0
     assert 'db:create' in missing.stderr
     for command, expected in [
-        ('db:create', {'created': True, 'tables_created': ['applications', 'documents', 'embeddings']}),
+        ('db:create', {'created': True, 'tables_created': ['applications', 'documents', 'document_processing_jobs', 'embeddings']}),
         ('db:create', {'created': False, 'tables_created': []}),
         ('db:migrate', {'tables_created': []}),
-        ('db:reset', {'dropped': True, 'created': True, 'tables_created': ['applications', 'documents', 'embeddings']}),
+        ('db:reset', {'dropped': True, 'created': True, 'tables_created': ['applications', 'documents', 'document_processing_jobs', 'embeddings']}),
         ('db:drop', {'dropped': True}),
         ('db:drop', {'dropped': False}),
     ]:
@@ -63,7 +63,7 @@ def test_help_lists_only_supported_database_commands(invoke):
 def test_application_management_and_required_scope(invoke):
     assert invoke('db:create').returncode == 0
     result = invoke('applications:create', '--name', 'example', '--embedding-model', 'model',
-                    '--provision-type', 'openai', '--embedding-size', '4', '--data',
+                    '--embedding-provision-type', 'openai', '--embedding-size', '4', '--data',
                     '{"nested":[1],"provider_config":{"embedding":{"api_key_env":"RYPIQ_TEST_MISSING_API_KEY"}}}')
     assert result.returncode == 0, result.stderr
     created = json.loads(result.stdout)
@@ -92,7 +92,7 @@ def test_applications_list_installed_cli_lists_all_records(invoke, backend):
     assert json.loads(empty.stdout) == []
     empty_text = invoke('applications:list')
     assert empty_text.returncode == 0, empty_text.stderr
-    headings = ['ID', 'NAME', 'PROVISION TYPE', 'EMBEDDING MODEL',
+    headings = ['ID', 'NAME', 'EMBEDDING PROVIDER', 'INFERENCE PROVIDER', 'EMBEDDING MODEL',
                 'EMBEDDING SIZE', 'INFERENCE MODEL', 'DOCUMENTS']
     assert empty_text.stdout == '  '.join(headings) + '\n'
 
@@ -116,7 +116,8 @@ def test_applications_list_installed_cli_lists_all_records(invoke, backend):
     result = invoke('applications:list', '--output', 'json')
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [
-        {'id': str(value.id), 'name': value.name, 'provision_type': value.provision_type,
+        {'id': str(value.id), 'name': value.name, 'embedding_provision_type': value.embedding_provision_type,
+         'inference_provision_type': value.inference_provision_type,
          'embedding_model': value.embedding_model, 'embedding_size': value.embedding_size,
          'inference_model': value.inference_model, 'document_count': counts.get(value.id, 0)}
         for value in applications]
@@ -124,7 +125,7 @@ def test_applications_list_installed_cli_lists_all_records(invoke, backend):
         result = invoke('applications:list', *arguments)
         assert result.returncode == 0, result.stderr
         assert [re.split(r' {2,}', line) for line in result.stdout.splitlines()] == [headings] + [
-            [str(value.id), value.name, 'local', 'unused', '768', '-', str(counts.get(value.id, 0))] for value in applications]
+            [str(value.id), value.name, 'local', 'local', 'unused', '768', '-', str(counts.get(value.id, 0))] for value in applications]
 
 
 def test_application_rename_and_delete_preserve_related_data(invoke, backend):
@@ -165,7 +166,7 @@ def test_embedding_cli_lifecycle_with_remote_provider(invoke, backend, server, t
 
     backend.create_database()
     value = backend.applications().create(Application(
-        name='remote', embedding_model='remote-model', provision_type='llama-server', embedding_size=2,
+        name='remote', embedding_model='remote-model', embedding_provision_type='llama-server', inference_provision_type='llama-server', embedding_size=2,
         data={'chunking': {'chunk_size': 5, 'stride': 5},
               'provider_config': {'embedding': {'base_url': server['url'] + '/v1'}}}))
     source = tmp_path / 'source.txt'

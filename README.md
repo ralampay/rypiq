@@ -209,7 +209,7 @@ rypiq db:migrate
 
 ### Application commands
 
-An application selects a provider and embedding/inference models. Create and update accept local GGUF paths, remote model IDs, or compatible `@catalog-alias` references. See [provider configuration](docs/PROVIDERS.md#application-provider-configuration) for endpoints and credential environment references.
+An application independently selects embedding and inference providers and models. Create and update accept local GGUF paths, remote model IDs, or compatible `@catalog-alias` references. See [provider configuration](docs/PROVIDERS.md#application-provider-configuration) for endpoints and credential environment references.
 
 | Command | Required arguments | Purpose |
 | --- | --- | --- |
@@ -227,12 +227,12 @@ Application CLI commands use the plural `applications:*` domain. The former
 `application:*` names and `ls-applications` are no longer supported.
 
 `applications:list` lists all applications in UUID order, without pagination arguments.
-The default text table has `ID`, `NAME`, `PROVISION TYPE`, `EMBEDDING MODEL`,
+The default text table has `ID`, `NAME`, `EMBEDDING PROVIDER`, `INFERENCE PROVIDER`, `EMBEDDING MODEL`,
 `EMBEDDING SIZE`, `INFERENCE MODEL`, and `DOCUMENTS` columns. Model values are the saved
 configuration, without alias resolution; missing or empty models display `-`.
 Columns expand to show complete values. Control characters in text cells are
 escaped so each application occupies one row. An empty database prints only the
-headers. JSON output contains `id`, `name`, `provision_type`, `embedding_model`,
+headers. JSON output contains `id`, `name`, `embedding_provision_type`, `inference_provision_type`, `embedding_model`,
 `embedding_size`, `inference_model`, and integer `document_count`, returning `[]` when empty. It preserves
 original string values, integer embedding sizes, and `null` for an unset inference model. Document counts include parent documents, not embedding chunks, and are zero for applications without documents. Listing does not guarantee a snapshot during concurrent changes.
 
@@ -249,7 +249,8 @@ Example JSON output:
   {
     "id": "00000000-0000-0000-0000-000000000001",
     "name": "My application",
-    "provision_type": "local",
+    "embedding_provision_type": "local",
+    "inference_provision_type": "local",
     "embedding_model": "my-embedding-model",
     "embedding_size": 768,
     "inference_model": null,
@@ -265,7 +266,8 @@ Example JSON output:
 | `--chunk-size N` | `500` when absent from application data | Replace saved maximum characters per chunk. |
 | `--stride N` | `400` when absent from application data | Replace saved character advance; must be positive and no greater than chunk size. |
 | `--embedding-size N` | Database configuration's `dimensions` (normally `768`); range `1–16000` | Replace the embedding size. |
-| `--provision-type TYPE` | `local`; choices: `local`, `openai`, `llama-server` | Replace the provider. |
+| `--embedding-provision-type TYPE` | `local`; choices: `local`, `openai`, `llama-server` | Replace only the embedding provider. |
+| `--inference-provision-type TYPE` | Independently defaults to `local`; same choices | Replace only the inference provider. |
 | `--inference-model MODEL` | Unset | Set the inference model. |
 | `--data JSON` | `{}`; must be a JSON object | Replace the entire data object, not a partial merge. |
 | `--clear-inference-model` | Not available on create | Clear the inference model; mutually exclusive with `--inference-model`. |
@@ -290,6 +292,24 @@ rypiq applications:delete APPLICATION_UUID
 ```
 
 Replace `models/your-chat-model.gguf` with your existing inference model. Models are not downloaded by these commands.
+
+### Updating existing applications
+
+When upgrading from the shared-provider schema, stop application callers, deploy the new code, and run `rypiq db:migrate` before restarting callers. Migration copies the previous provider into both new fields and preserves documents and embeddings. The former application `provision_type` field and `--provision-type` flag are removed; new applications default each provider independently to `local`.
+
+Inspect the saved configuration, then change inference without changing embeddings:
+
+```sh
+rypiq applications:show APPLICATION_UUID
+rypiq applications:update APPLICATION_UUID \
+  --inference-provision-type openai --inference-model YOUR_OPENAI_MODEL_ID
+rypiq applications:show APPLICATION_UUID
+rypiq chat 'What does the guide say about setup?' --application-id APPLICATION_UUID
+```
+
+Set `OPENAI_API_KEY` in the environment before chat. OpenAI's default endpoint and credential reference apply when no explicit inference options are saved. If switching from another remote endpoint, replace stale inference options as described in [updating provider configuration](docs/PROVIDERS.md#updating-provider-configuration). Inference-only changes require no reprocessing.
+
+Omitted update flags retain their saved values. `--data` replaces the entire JSON object, including embedding options, chunking, and application metadata; it does not merge nested keys. See the provider guide for complete JSON and Python update examples, local/llama-server configuration, and embedding reprocessing instructions.
 
 ### Text processing
 
@@ -451,22 +471,17 @@ to the required application ID and does not perform keyword search.
 
 ### Inference commands
 
-`rypiq chat PROMPT` performs non-streaming text inference. The prompt is a positional argument. Choose exactly one of `--application-id` and `--model`.
+`rypiq chat PROMPT --application-id UUID` performs non-streaming retrieval-augmented inference. The prompt is positional and `--application-id` is required; there are no model or generation flags.
 
-| Option | Default or requirement | Meaning |
-| --- | --- | --- |
-| `--application-id UUID` | Required unless `--model` is supplied | Use the application's configured inference model and provider. |
-| `--model MODEL` | Required unless `--application-id` is supplied | Standalone local GGUF path or inference-capable local `@catalog-alias`; no database required. |
-| `--system TEXT` | Unset | Prepend a system message. |
-| `--max-tokens N` | `512` | Positive maximum output token count. |
-| `--temperature N` | Unset: use the provider's default | Sampling temperature, finite number from `0` to `2`. |
+Chat embeds the question using the application's embedding settings, retrieves its top five matching chunks, and supplies them to its configured inference model. An application must have an inference model configured. The grounding prompt instructs the model to acknowledge insufficient evidence instead of answering from general knowledge, including when no chunks are retrieved. This is an instruction to the model, not a guarantee of factual correctness.
 
-An application must have an inference model configured to use `--application-id`. Chat returns text, model, finish reason, and optional usage; it does not retrieve documents or maintain conversation history.
+Chat returns the existing JSON fields `text`, `model`, `finish_reason`, and `usage`, plus `sources`. Each source contains `document_id` (a string UUID), `name`, `filename`, `source`, and `indicator` (such as `[1]`). Documents are deduplicated by ID in first-match retrieval order; no matches returns `sources: []`. Empty filenames and source values are preserved. The system prompt requests Markdown in `text` and inline indicators after quotations and sourced claims, for example `The guide recommends this. [1]`. Indicators start at `[1]` for each response and match the structured sources; chunks from the same document share an indicator. These are retrieved documents, not a guarantee that the model used each one. Citation accuracy and Markdown formatting depend on the model; responses are not post-validated. Passage text and embedding vectors are not included. It does not persist conversation history. CLI generation uses a maximum of 512 output tokens and the provider's default temperature. Python callers can supply conversation history and generation options.
 
 ```sh
-rypiq chat 'Say hello.' --application-id APPLICATION_UUID --system 'Be concise.' --max-tokens 128
-rypiq chat 'Say hello.' --model models/your-chat-model.gguf --temperature 0.5
+rypiq chat 'What does the guide say about setup?' --application-id APPLICATION_UUID
 ```
+
+The system prompt is `RAG_SYSTEM_PROMPT` in [inference/prompts.py](app/operations/inference/prompts.py). See [RAG prompt customization](docs/PROVIDERS.md#rag-prompt-customization) for the reusable operation and prompt-builder interface.
 
 For reuse across Python calls, see [local model sessions](docs/PROVIDERS.md#reusing-local-models). Separate CLI invocations do not share loaded models.
 
@@ -523,3 +538,53 @@ Without `RYPIQ_TEST_ADMIN_URL`, database integrations are skipped. Model integra
 Read [AGENTS.md](AGENTS.md) for agent instructions and the [code conventions](docs/CODE_CONVENTIONS.md) for command objects, operation functions, factories, repositories, resource ownership, and testing guidance.
 
 See [CLI and backend execution paths](docs/EXECUTION_PATHS.md) for configured Python calls, injected commands, resource ownership, and the branch-coverage command.
+
+## HTTP API and document worker
+
+RyPiq also provides a FastAPI service using the same operations and PostgreSQL backend.
+See [API endpoints and examples](docs/API.md) for the complete contract.
+
+Install dependencies and set `APP_SECRET_KEY` in `.env` to a generated secret:
+
+```sh
+env/bin/python -m pip install -e ".[dev]"
+env/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Initialize a new database with `rypiq db:create`, or run `rypiq db:migrate` on an
+existing database to add the durable processing queue. The server does not migrate
+the database automatically.
+
+Run these in separate terminals from the project directory:
+
+```sh
+env/bin/rypiq server --host 127.0.0.1 --port 3000 --reload
+```
+
+```sh
+env/bin/rypiq worker
+```
+
+Both processes use the same database, model configuration, and object-storage root.
+Open <http://127.0.0.1:3000/docs> and use **Authorize** to enter the secret. Every
+`/api/v1` endpoint requires `X-App-Secret-Key`; `/docs` and `/openapi.json` are public
+schema documentation. No user accounts or JWTs are involved.
+
+CORS allows all browser origins by default. Set `API_CORS_ORIGINS` to a
+comma-separated list such as `http://localhost:5173,https://frontend.example`
+to restrict origins, or an empty value to disable cross-origin access. Browser
+preflight requests are supported; actual API calls still require the secret header.
+
+Document upload stores the original and returns `pending`. Submit the separate
+processing endpoint to enqueue embeddings, then poll its returned URL. Accepted
+work survives API and worker restarts in PostgreSQL. Chat, search, and the other
+HTTP operations are synchronous. Existing CLI document creation remains synchronous.
+
+## Injectable configuration
+
+Use `app.config.load_config()` to capture settings once, then pass `config=` to
+`create_app`, configured Python operations, context helpers, or worker functions.
+Tests and embedding applications can construct `AppConfig` directly without
+loading environment variables or YAML. See [configuration injection](docs/CONFIGURATION.md)
+for typed settings, overrides, validation, and examples. Running servers and workers
+pick up file/environment changes after restart; application records remain live.

@@ -13,7 +13,7 @@ def test_create_installs_extension_and_fixed_schema(backend):
     assert str(columns['embedding']['type']) == 'VECTOR'
     assert 'model_name' in columns
     assert 'embedding_model' in columns
-    assert inspector.get_table_names() == ['applications', 'documents', 'embeddings']
+    assert set(inspector.get_table_names()) == {'applications', 'document_processing_jobs', 'documents', 'embeddings'}
     assert backend.create_database()['created'] is False
     assert backend.migrate() == {'tables_created': []}
 
@@ -57,7 +57,7 @@ def test_drop_reset_preserve_other_database_and_files(backend, tmp_path):
     with backend.engine.begin() as connection:
         connection.exec_driver_sql('CREATE TABLE unrelated (id integer)')
     assert backend.reset()['created'] is True
-    assert sa.inspect(backend.engine).get_table_names() == ['applications', 'documents', 'embeddings']
+    assert set(sa.inspect(backend.engine).get_table_names()) == {'applications', 'document_processing_jobs', 'documents', 'embeddings'}
     assert backend.drop_database() == {'dropped': True}
     assert backend.drop_database() == {'dropped': False}
     assert sentinel.read_text() == 'keep'

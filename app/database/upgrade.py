@@ -36,7 +36,10 @@ def upgrade_legacy(connection, metadata, columns):
         application = Application(name=f'Legacy application {number}', embedding_model=model,
                                   embedding_size=dimensions,
                                   data={'legacy': True, 'requires_model_configuration': not bool(model.strip())})
-        connection.execute(applications.insert().values(**asdict(application)))
+        values = asdict(application)
+        values['provision_type'] = values.pop('embedding_provision_type')
+        values.pop('inference_provision_type')
+        connection.execute(applications.insert().values(**values))
         connection.execute(documents.update().where(documents.c.model_name == model).values(
             application_id=application.id, embedding_model=model,
             embedding_size=dimensions, provision_type='local'))
@@ -93,7 +96,7 @@ def split_documents(connection, metadata):
             {**{column.name: row[column.name] for column in embeddings.c if column.name != 'document_id'},
              'document_id': document_id} for row in chunks])
     from app.models.processing import SNAPSHOT_KEY, processing_settings
-    applications = {row['id']: Application(**row) for row in connection.execute(
+    applications = {row['id']: _historical_application(row) for row in connection.execute(
         sa.select(metadata.tables['public.applications'])).mappings()}
     for parent in parents:
         parent['metadata'][SNAPSHOT_KEY] = processing_settings(applications[parent['application_id']])
@@ -172,7 +175,7 @@ def add_document_status(connection, metadata):
     has_embeddings = sa.inspect(connection).has_table('embeddings', schema='public')
     applications = metadata.tables['public.applications']
     for row in connection.execute(sa.select(applications)).mappings():
-        snapshot = processing_settings(Application(**row))
+        snapshot = processing_settings(_historical_application(row))
         owned = documents.c.application_id == row['id']
         if has_embeddings:
             connection.execute(documents.update().where(owned, sa.exists().where(
@@ -186,3 +189,38 @@ def add_document_status(connection, metadata):
     for index in documents.indexes:
         if index.name == 'ix_documents_status':
             connection.execute(CreateIndex(index))
+
+
+def _historical_application(row):
+    """Convert frozen schema rows without adding a legacy public model field."""
+    values = dict(row)
+    provider = values.pop('provision_type')
+    return Application(**values, embedding_provision_type=provider, inference_provision_type=provider)
+
+
+def split_application_providers(connection, metadata):
+    """Atomically replace the recognized shared application provider field."""
+    from app.database.schema import validate_table
+    from app.database.shared_provider_schema import build_metadata
+
+    connection.exec_driver_sql('LOCK TABLE public.applications IN ACCESS EXCLUSIVE MODE')
+    columns = {c['name'] for c in sa.inspect(connection).get_columns('applications', schema='public')}
+    if 'provision_type' not in columns:
+        return  # Final schema validation still rejects partial/unknown layouts.
+    for table in build_metadata().sorted_tables:
+        if sa.inspect(connection).has_table(table.name, schema='public'):
+            validate_table(connection, table)
+    connection.exec_driver_sql('ALTER TABLE public.applications '
+                              'ADD COLUMN embedding_provision_type text, '
+                              'ADD COLUMN inference_provision_type text')
+    connection.exec_driver_sql('UPDATE public.applications SET '
+                              'embedding_provision_type = provision_type, '
+                              'inference_provision_type = provision_type')
+    connection.exec_driver_sql('ALTER TABLE public.applications '
+                              'ALTER COLUMN embedding_provision_type SET NOT NULL, '
+                              'ALTER COLUMN inference_provision_type SET NOT NULL, '
+                              'DROP CONSTRAINT ck_applications_provider, '
+                              'DROP COLUMN provision_type')
+    for constraint in metadata.tables['public.applications'].constraints:
+        if constraint.name in ('ck_applications_embedding_provider', 'ck_applications_inference_provider'):
+            connection.execute(AddConstraint(constraint, isolate_from_table=False))

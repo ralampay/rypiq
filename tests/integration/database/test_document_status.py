@@ -143,7 +143,7 @@ def seed_pre_status(backend):
     with backend.engine.begin() as connection:
         connection.exec_driver_sql('CREATE EXTENSION vector')
         metadata.create_all(connection)
-        connection.execute(metadata.tables['public.applications'].insert(), asdict(application))
+        connection.execute(metadata.tables['public.applications'].insert(), shared_application_values(application))
         connection.execute(metadata.tables['public.documents'].insert(), [
             {k: v for k, v in asdict(document).items() if k != 'status'} for document in documents])
         connection.execute(metadata.tables['public.embeddings'].insert(), asdict(chunk))
@@ -212,3 +212,10 @@ def test_status_upgrade_rolls_back_when_later_schema_creation_fails(backend):
     assert 'status' not in {c['name'] for c in sa.inspect(backend.engine).get_columns('documents')}
     with backend.engine.connect() as connection:
         assert connection.exec_driver_sql('SELECT count(*) FROM documents').scalar_one() == len(documents)
+
+
+def shared_application_values(application):
+    values = asdict(application)
+    values['provision_type'] = values.pop('embedding_provision_type')
+    values.pop('inference_provision_type')
+    return values

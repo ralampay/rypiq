@@ -12,7 +12,8 @@ from app.models.document import utc_now
 class Application:
     name: str
     embedding_model: str
-    provision_type: str = 'local'
+    embedding_provision_type: str = 'local'
+    inference_provision_type: str = 'local'
     embedding_size: int = 768
     inference_model: str | None = None
     data: dict = field(default_factory=dict)
@@ -26,7 +27,8 @@ class Application:
 class ApplicationSummary:
     id: UUID
     name: str
-    provision_type: str
+    embedding_provision_type: str
+    inference_provision_type: str
     embedding_model: str
     embedding_size: int
     inference_model: str | None
@@ -39,8 +41,9 @@ def validate_application(application: Application) -> None:
     for value in (application.name, application.embedding_model):
         if not isinstance(value, str) or not value.strip():
             raise ValidationError('Application name and embedding model must be nonempty')
-    if application.provision_type not in ('local', 'openai', 'llama-server'):
-        raise ValidationError('Unsupported provision type')
+    for capability in ('embedding', 'inference'):
+        if getattr(application, capability + '_provision_type') not in ('local', 'openai', 'llama-server'):
+            raise ValidationError(f'Unsupported {capability} provision type')
     if type(application.embedding_size) is not int or not 1 <= application.embedding_size <= 16000:
         raise ValidationError('Embedding size must be an integer between 1 and 16000')
     if application.inference_model is not None and not isinstance(application.inference_model, str):

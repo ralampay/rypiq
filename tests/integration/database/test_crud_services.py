@@ -24,7 +24,7 @@ def services(backend):
 def test_application_update_delete_and_missing_records(services):
     applications, _, first, _ = services
     changed = replace(first, name='renamed', data={'nested': [1]}, inference_model='inference',
-                      embedding_model='new', embedding_size=4, provision_type='openai')
+                      embedding_model='new', embedding_size=4, embedding_provision_type='openai', inference_provision_type='openai')
     previous = changed.updated_at
     updated = applications.update(changed)
     assert updated is changed
@@ -48,7 +48,7 @@ def test_application_embedding_changes_allowed_and_delete_restricted_with_docume
     applications, documents, first, _ = services
     created = documents.create(Document(filename='text', storage_key='shared.txt', name=str(uuid4())))
     assert applications.update(replace(first, name='allowed')).name == 'allowed'
-    for changes in ({'embedding_size': 3}, {'embedding_model': 'other'}, {'provision_type': 'openai'}):
+    for changes in ({'embedding_size': 3}, {'embedding_model': 'other'}, {'embedding_provision_type': 'openai'}):
         applications.update(replace(first, **changes))
         for key, value in changes.items():
             assert getattr(applications.get(first.id), key) == value

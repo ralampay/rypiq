@@ -12,12 +12,13 @@ from app.storage.base import ObjectStorage
 
 class CreateDocument:
     def __init__(self, *, name: str, path: str, application: Application,
-                 repository: DocumentRepository, storage: ObjectStorage) -> None:
+                 repository: DocumentRepository, storage: ObjectStorage, source_name: str | None = None) -> None:
         self.name = name
         self.path = path
         self.application = application
         self.repository = repository
         self.storage = storage
+        self.source_name = source_name
 
     def execute(self) -> DocumentDetails:
         validate_application(self.application)
@@ -27,7 +28,7 @@ class CreateDocument:
         with source.open('rb'):
             pass
         document = self.repository.create(Document(name=name, application_id=self.application.id,
-            filename=source.name, source=str(source)))
+            filename=source.name, source=str(source) if self.source_name is None else self.source_name))
         try:
             stored = save_file(path=source, storage=self.storage)
             document.storage_key = stored.key

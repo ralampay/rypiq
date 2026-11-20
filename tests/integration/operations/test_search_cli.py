@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app import cli, application
+from app.config import AppConfig
 from app.models.document import Document, DocumentDetails
 from app.models.embedding import Embedding
 from app.models.search import SearchResult
@@ -58,6 +59,7 @@ def test_search_cli_uses_provider_and_repository(
     assert output[0]["content"] == "RAG retrieved chunk"
     assert output[0]["distance"] == 0.23
 
+    assert isinstance(received['search'].pop('config'), AppConfig)
     assert received['search'] == {
         'application_id': UUID(int=1),
         'query': 'What is RAG?', 'limit': 4, 'model_path': 'test.gguf',

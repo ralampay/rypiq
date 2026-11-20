@@ -235,7 +235,7 @@ def test_doctor_does_not_close_library_logging(tmp_path, monkeypatch, capsys):
     from app.logging import configure_logging, get_logger
 
     configure_logging(directory=tmp_path)
-    monkeypatch.setattr(cli, 'check_configuration', lambda: ConfigurationReport('development', ()))
+    monkeypatch.setattr(cli, 'check_configuration', lambda config=None: ConfigurationReport('development', ()))
     cli.main(['--doctor'])
     get_logger().info('still_active')
     capsys.readouterr()
@@ -284,8 +284,12 @@ def test_core_workflows_log_success_without_content(tmp_path):
                            repository=repository, application=application).execute() == []
     result = embed_chunks({'chunks': [{'text': 'private-document'}]}, provider, 1)
     assert result['embedded_chunk_count'] == 1
-    expected = provider.chat.return_value
-    assert Chat(messages=[ChatMessage(role='user', content='private-prompt')], provider=provider).execute() is expected
+    from app.providers.types.chat import ChatResult
+    provider.chat.return_value = ChatResult('private-answer', 'model', 'stop')
+    result = Chat(messages=[ChatMessage(role='user', content='private-prompt')], provider=provider,
+                  application=application, repository=repository, embedding_provider=provider).execute()
+    assert result.text == 'private-answer'
+    assert result.sources == []
     provider.close.assert_not_called()
     text = (tmp_path / 'development.log').read_text()
     assert all(secret not in text for secret in ('private-query', 'private-document', 'private-prompt'))

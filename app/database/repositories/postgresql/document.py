@@ -14,6 +14,7 @@ from app.exceptions import (
     InvalidIdentifierError,
     ValidationError,
     ConflictError,
+    ProcessingBusyError,
 )
 from app.database.repositories.document import DocumentRepository
 from app.models.validation import validate_pagination, validate_status, validate_id
@@ -26,18 +27,25 @@ from app.models.validation import validate_document, validate_chunk, normalize_d
 
 
 class PostgreSQLDocumentRepository(DocumentRepository):
-    def __init__(self, engine, table):
+    def __init__(self, engine, table, *, processing_claim=None):
+        self.processing_claim = processing_claim
+        self.jobs = table.metadata.tables.get("public.document_processing_jobs")
         self.engine = engine
         self.table = table
         self.applications = table.metadata.tables['public.applications']
         self.embeddings = table.metadata.tables['public.embeddings']
 
+    @contextmanager
     def _write(self, document=None):
-        return database_connection(
+        with database_connection(
             self.engine, write=True,
             application_id=document.application_id if document is not None else None,
             name=document.name if document is not None else None,
-        )
+        ) as connection:
+            if self.processing_claim is not None:
+                from app.database.repositories.postgresql.processing_job import lock_claim
+                lock_claim(connection, self.jobs, self.processing_claim)
+            yield connection
 
     def name_exists(self, *, application_id: UUID, name: str) -> bool:
         if not isinstance(application_id, UUID):
@@ -146,6 +154,13 @@ class PostgreSQLDocumentRepository(DocumentRepository):
 
     def delete(self, id, *, application_id=None):
         with self._write() as connection:
+            original = connection.execute(self._scope(sa.select(self.table.c.id).where(
+                self.table.c.id == id), application_id).with_for_update()).first()
+            if original is None:
+                return False
+            if self.jobs is not None and connection.scalar(sa.select(sa.exists().where(
+                    self.jobs.c.document_id == id, self.jobs.c.state.in_(['queued', 'running'])))):
+                raise ConflictError('Document has active processing work')
             return bool(connection.execute(self._scope(self.table.delete().where(
                 self.table.c.id == id), application_id)).rowcount)
 
@@ -187,9 +202,15 @@ class PostgreSQLDocumentRepository(DocumentRepository):
                 close_resource(connection.invalidate, failure)
                 raise
             if not acquired:
-                raise ConflictError('Document is already being processed')
+                raise ProcessingBusyError('Document is already being processed')
             failure = None
             try:
+                if self.processing_claim is None and self.jobs is not None:
+                    active = connection.scalar(sa.select(sa.exists().where(
+                        self.jobs.c.document_id == id, self.jobs.c.state.in_(['queued', 'running']))))
+                    connection.commit()
+                    if active:
+                        raise ProcessingBusyError('Document has active queued processing work')
                 yield
             except BaseException as exc:
                 failure = exc
@@ -233,4 +254,7 @@ class PostgreSQLDocumentRepository(DocumentRepository):
                 status='done', updated_at=datetime.now(timezone.utc),
                 metadata={**original['metadata'], SNAPSHOT_KEY: processing_settings(application)}
             ).returning(self.table)).mappings().one()
+            if self.processing_claim is not None:
+                from app.database.repositories.postgresql.processing_job import complete_claim
+                complete_claim(connection, self.jobs, self.processing_claim)
         return DocumentDetails(Document(**row), embeddings)

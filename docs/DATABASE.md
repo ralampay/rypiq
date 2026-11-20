@@ -21,6 +21,18 @@ The configured role needs permission to create/drop its databases and initialize
 
 `DATABASE_ENV` selects `development`, `test`, or `production`. `RYPIQ_DATABASE_CONFIG` selects an alternative YAML file by absolute path, including when running outside the checkout or using a non-editable package installation. [.env.example](../.env.example) lists supported variables; the CLI does not automatically load `.env` files. Do not commit real credentials.
 
+## Independent-provider upgrade
+
+Applications persist non-null `embedding_provision_type` and `inference_provision_type` columns, each constrained to `local`, `openai`, or `llama-server`. The Python/CLI defaults are independently `local`; `inference_model` remains nullable. The application-level `provision_type` column and old API argument/CLI flag have been removed.
+
+Stop callers and deploy matching code before running `rypiq db:migrate`. The explicit transactional upgrade recognizes the old shared-provider schema, copies its provider into both new columns, and removes the old column. Existing IDs, API keys, timestamps, model settings, JSON configuration, documents, and embeddings are preserved. Older supported document layouts first pass through their existing historical upgrades. A partial/unknown schema is rejected; failure rolls back all upgrade changes. Running migration again against the current schema preserves data.
+
+Old and new application versions cannot operate concurrently against this changed schema. This is a deliberate upgrade, not migration autogeneration. Database reset is unnecessary and would delete data.
+
+Embedding rows retain their `provision_type` column, and processing snapshots retain the same key; both now correspond to the application's `embedding_provision_type`. Changing inference configuration does not invalidate embeddings. Changing embedding settings retains the existing reprocessing requirements.
+
+After migration, use `applications:update` to select independent providers. See [updating provider configuration](PROVIDERS.md#updating-provider-configuration) for CLI and Python examples, JSON replacement behavior, credentials, verification, and reprocessing.
+
 ## Database commands
 
 | Command | Behavior |
@@ -111,13 +123,13 @@ rypiq applications:show APPLICATION_UUID
 rypiq applications:update APPLICATION_UUID --name 'Renamed application'
 ```
 
-`applications:show APPLICATION_UUID` returns application settings without its API key. Creation also accepts `--provision-type`, `--inference-model`, and `--data '{"purpose":"example"}'`. Embedding and inference execution support all three providers. See [Model providers](PROVIDERS.md) for endpoints, credentials, model aliases, and chat commands.
+`applications:show APPLICATION_UUID` returns application settings without its API key. Creation also accepts `--embedding-provision-type`, `--inference-provision-type`, `--inference-model`, and `--data '{"purpose":"example"}'`. Embedding and inference execution support all three providers. See [Model providers](PROVIDERS.md) for endpoints, credentials, model aliases, and chat commands.
 
 `applications:list` lists every application in UUID order. Its default text table
-shows ID, name, provision type, embedding model, embedding size, and inference
+shows ID, name, embedding provider, inference provider, embedding model, embedding size, and inference
 model. Missing or empty models display `-`; complete values are shown with control
 characters escaped. It accepts only `--output text` or `--output json`; JSON
-contains `id`, `name`, `provision_type`, `embedding_model`, `embedding_size`, and
+contains `id`, `name`, `embedding_provision_type`, `inference_provision_type`, `embedding_model`, `embedding_size`, and
 `inference_model`, preserving saved values and using `null` for an unset inference
 model. Empty results produce headers in text or `[]` in JSON. There are no CLI
 pagination options; Python service and repository listing retain pagination.
@@ -232,7 +244,7 @@ attach a newly stored original compensates that object; filesystem and database
 operations are not one transaction. The lower-level `create_with_embeddings()` API
 remains available for callers supplying a complete aggregate.
 
-Application updates preserve API keys and creation timestamps. Embedding model, size, provision type, and preprocessing settings can change while documents exist. Reprocess each affected document with `documents:process --document-id UUID`. Search excludes incompatible embedding snapshots until replacement succeeds. Application deletion is restricted until its documents have been removed. Application deletion and document creation use transaction locks to enforce ownership and deletion restrictions. API key rotation and document updates remain outside the CLI; `embeddings:show` and `embeddings:delete` access individual chunk records by UUID. `applications:update` also resolves model catalog aliases; see [Model providers](PROVIDERS.md).
+Application updates preserve API keys and creation timestamps. Embedding model, size, embedding provision type, and preprocessing settings can change while documents exist. Reprocess each affected document with `documents:process --document-id UUID`. Search excludes incompatible embedding snapshots until replacement succeeds. Application deletion is restricted until its documents have been removed. Application deletion and document creation use transaction locks to enforce ownership and deletion restrictions. API key rotation and document updates remain outside the CLI; `embeddings:show` and `embeddings:delete` access individual chunk records by UUID. `applications:update` also resolves model catalog aliases; see [Model providers](PROVIDERS.md).
 
 ## Database integration tests
 
@@ -244,3 +256,17 @@ env/bin/python -m pytest tests/integration/database -q
 ```
 
 Without that URL, database integrations are skipped. A skip is not evidence of verified support. See [validation results](VALIDATION.md) for historical runs; run the tests again to validate current changes.
+
+## Durable document processing queue
+
+`db:create` and `db:migrate` include the explicit `document_processing_jobs` table.
+It stores document ownership, batch size, queue state, attempts, a claim token and
+lease expiry, timestamps, and a safe error message. The document foreign key cascades
+only when document deletion is allowed; repository deletion rejects active jobs.
+A partial unique index enforces one queued/running job per document. Migration
+validates this index as well as the table shape and rejects incompatible definitions.
+
+Worker claims use `FOR UPDATE SKIP LOCKED`; token checks fence writes after claim
+expiry. Job success and embedding replacement are one database transaction. No
+migration files, external broker, or extra database backend are introduced.
+See [API queue guarantees](API.md#queue-and-recovery-guarantees).

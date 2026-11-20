@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from app import cli, application
+from app.config import AppConfig
 from app.models.document import Document, DocumentDetails
 from app.models.embedding import Embedding
 
@@ -19,6 +20,7 @@ def test_embeddings_cli_dispatch(monkeypatch, capsys, sample_text_file):
 
     monkeypatch.setattr(application, 'create_document', fake_create)
     cli.main(['documents:create', '--name', 'test document', str(sample_text_file), '--application-id', str(UUID(int=1))])
+    assert isinstance(seen.pop('config'), AppConfig)
     assert seen == {'path': str(sample_text_file), 'application_id': UUID(int=1), 'batch_size': 1, 'name': 'test document'}
     output = json.loads(capsys.readouterr().out)
     assert output['embeddings'][0]['content'] == 'text'

@@ -12,8 +12,8 @@ from app import cli, application
 def test_context_owns_and_releases_database(monkeypatch):
     calls = []
     backend = SimpleNamespace(documents=lambda: 'repository', close=lambda: calls.append('closed'))
-    monkeypatch.setattr(context_module, 'get_database', lambda: backend)
-    monkeypatch.setattr(context_module, 'get_storage', lambda: 'storage')
+    monkeypatch.setattr(context_module, 'get_database', lambda config=None: backend)
+    monkeypatch.setattr(context_module, 'get_storage', lambda config=None: 'storage')
     context = context_module.create_context()
     assert context.documents == 'repository'
     context.close()
@@ -23,8 +23,8 @@ def test_context_owns_and_releases_database(monkeypatch):
 def test_context_setup_failure_releases_database(monkeypatch):
     calls = []
     backend = SimpleNamespace(documents=lambda: 'repository', close=lambda: calls.append('closed'))
-    monkeypatch.setattr(context_module, 'get_database', lambda: backend)
-    def fail():
+    monkeypatch.setattr(context_module, 'get_database', lambda config=None: backend)
+    def fail(config=None):
         raise ValueError('bad storage configuration')
     monkeypatch.setattr(context_module, 'get_storage', fail)
     with pytest.raises(ValueError):
@@ -38,7 +38,7 @@ def test_search_cli_failure_releases_database(monkeypatch):
     backend = Mock()
     backend.applications.return_value.get.return_value = value
     @contextmanager
-    def open_backend():
+    def open_backend(config=None):
         try:
             yield backend
         finally:

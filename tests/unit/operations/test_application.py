@@ -15,7 +15,7 @@ def test_search_does_not_require_object_storage_configuration(monkeypatch):
     backend.embeddings.return_value.search_by_vector.return_value = ['match']
     backend.__enter__ = Mock(return_value=backend)
     backend.__exit__ = Mock()
-    monkeypatch.setattr(application, 'get_database', lambda: backend)
+    monkeypatch.setattr(application, 'get_database', lambda config=None: backend)
     backend.applications.return_value.get.return_value = APPLICATION
     def wrong_dependency():
         raise AssertionError('Search must not construct object storage')
@@ -66,7 +66,7 @@ def test_ingestion_application_releases_context_after_command_failure(monkeypatc
     backend.__enter__.return_value = backend
     backend.documents.return_value.name_exists.return_value = False
     backend.applications.return_value.get.return_value = APPLICATION
-    monkeypatch.setattr(application, 'get_database', lambda: backend)
+    monkeypatch.setattr(application, 'get_database', lambda config=None: backend)
     monkeypatch.setattr(app.storage.factory, 'get_storage', Mock())
     model = Mock()
     monkeypatch.setattr(application, 'get_embedding_provider', lambda **kwargs: model)

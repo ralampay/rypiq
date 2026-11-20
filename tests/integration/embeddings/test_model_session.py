@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.application import chat, embed_file
+from app.application import embed_file
 from app.providers.config import ProviderSettings
 from app.providers.contracts import ChatMessage
 from app.providers.session import LocalModelSession
@@ -37,8 +37,10 @@ def test_local_models_load_once_across_warmup_and_repeated_operations(tmp_path, 
             vectors = embed_file(path=str(source), chunk_size=100, stride=100,
                                  model_path=str(embedding_path), model_session=session)
             assert len(vectors['chunks'][0]['embedding']) == 768
-            result = chat(messages=[ChatMessage('user', 'Say hello.')], model_path=inference_path,
-                          max_tokens=32, temperature=0, model_session=session)
+            with session.open_provider(ProviderSettings(provider='local', capability='inference',
+                    model=inference_path, embedding_size=768)) as provider:
+                result = provider.chat([ChatMessage('user', 'Say hello.')],
+                                       max_tokens=32, temperature=0)
             assert result.text.strip()
         assert constructor.call_count == 2
         assert [call.kwargs['embedding'] for call in constructor.call_args_list] == [True, False]

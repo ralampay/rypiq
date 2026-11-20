@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.models.application import Application
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 import os
@@ -27,12 +28,15 @@ class CatalogEntry:
     provider: str
     capabilities: tuple[str, ...]
     model: str
-    options: dict
+    options: Mapping
 
 
-def load_catalog(path: str | Path | None = None) -> dict[str, CatalogEntry]:
-    load_environment()
-    source = Path(path or os.getenv('RYPIQ_MODELS_CONFIG', DEFAULT_CATALOG)).expanduser().resolve()
+def load_catalog(path: str | Path | None = None, *, environ=None, project_root=None) -> dict[str, CatalogEntry]:
+    if environ is None:
+        load_environment()
+    values = os.environ if environ is None else environ
+    default = DEFAULT_CATALOG if project_root is None else Path(project_root) / 'config/models.yml'
+    source = Path(path or values.get('RYPIQ_MODELS_CONFIG', default)).expanduser().resolve()
     try:
         raw = yaml.safe_load(source.read_text())
     except (OSError, UnicodeError, yaml.YAMLError):
@@ -67,7 +71,7 @@ def resolve_model(model: str, provider: str, capability: str,
     entry = catalog.get(model[1:])
     if entry is None or entry.provider != provider or capability not in entry.capabilities:
         raise ModelCatalogError('Model alias is missing or incompatible with provider/capability')
-    return entry.model, deepcopy(entry.options)
+    return entry.model, deepcopy(dict(entry.options))
 
 
 def resolve_application(application: Application, catalog: dict[str, CatalogEntry]) -> Application:

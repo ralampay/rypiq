@@ -18,7 +18,7 @@ def persist_document(path: str, storage: ObjectStorage,
     """Commit one aggregate; compensate its original file if the transaction fails."""
     name = normalize_document_name(name)
     validate_application(application)
-    if result['model'] != model_identity(application.embedding_model, application.provision_type):
+    if result['model'] != model_identity(application.embedding_model, application.embedding_provision_type):
         raise ModelMismatchError('Embedding provider model must match the application')
     if not result['chunks']:
         raise EmptyDocumentError('File has no nonempty text chunks')
@@ -44,7 +44,7 @@ def persist_document(path: str, storage: ObjectStorage,
 
 def build_embeddings(document_id: UUID, result: dict, application: Application,
                      chunk_size: int, stride: int) -> list[Embedding]:
-    if result['model'] != model_identity(application.embedding_model, application.provision_type):
+    if result['model'] != model_identity(application.embedding_model, application.embedding_provision_type):
         raise ModelMismatchError('Embedding provider model must match the application')
     if not result['chunks']:
         raise EmptyDocumentError('File has no nonempty text chunks')
@@ -53,7 +53,7 @@ def build_embeddings(document_id: UUID, result: dict, application: Application,
         embedding=validate_embedding(chunk['embedding'], application.embedding_size),
         chunk_index=chunk['index'], model_name=result['model'],
         embedding_model=application.embedding_model, embedding_size=application.embedding_size,
-        provision_type=application.provision_type,
+        provision_type=application.embedding_provision_type,
         metadata={'start': chunk['start'], 'end': chunk['end'],
                   'chunk_size': chunk_size, 'stride': stride},
     ) for chunk in result['chunks']]

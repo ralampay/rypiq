@@ -43,7 +43,7 @@ class PostgreSQLEmbeddingRepository(EmbeddingRepository):
     @staticmethod
     def validate_snapshot(embedding, application):
         for name in ('embedding_model', 'embedding_size', 'provision_type'):
-            if getattr(embedding, name) != application[name]:
+            if getattr(embedding, name) != application['embedding_provision_type' if name == 'provision_type' else name]:
                 raise ModelMismatchError('Embedding settings must match its application')
 
     def _scope(self, statement, application_id):
@@ -146,7 +146,7 @@ class PostgreSQLEmbeddingRepository(EmbeddingRepository):
             query = query.where(
                 self.table.c.embedding_model == application['embedding_model'],
                 self.table.c.embedding_size == application['embedding_size'],
-                self.table.c.provision_type == application['provision_type'],
+                self.table.c.provision_type == application['embedding_provision_type'],
                 *[self.documents.c.metadata[SNAPSHOT_KEY][key] == sa.type_coerce(value, self.documents.c.metadata.type)
                   for key, value in settings.items()])
             rows = connection.execute(query.order_by(distance, self.table.c.id).limit(limit)).mappings().all()

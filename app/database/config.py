@@ -19,7 +19,7 @@ def validate_database_target(database, maintenance):
         raise DatabaseConfigurationError('Target must differ from maintenance and system databases')
 
 
-def validate_config(settings):
+def validate_config(settings, *, environ=None):
     if not isinstance(settings, dict):
         raise DatabaseConfigurationError('Database environment must be a mapping')
     config = dict(settings)
@@ -35,26 +35,31 @@ def validate_config(settings):
         if type(value) is not int or not 1 <= value <= maximum:
             raise DatabaseConfigurationError(f'{key} must be an integer between 1 and {maximum}')
     if 'password_env' in config:
+        values = os.environ if environ is None else environ
         name = config['password_env']
-        if not isinstance(name, str) or name not in os.environ:
-            raise DatabaseConfigurationError('Configured password environment variable is missing')
-        config['password'] = os.environ[name]
+        if not isinstance(name, str) or name not in values:
+            raise DatabaseConfigurationError('Configured password environment variable is missing' +
+                (f'; export {name} before running RyPiq' if isinstance(name, str) and name.isidentifier() else ''))
+        config['password'] = values[name]
     if config.get('password') is not None and not isinstance(config['password'], str):
         raise DatabaseConfigurationError('Database password must be a string')
     return config
 
 
-def load_database_config():
-    load_environment()
-    path = Path(os.getenv('RYPIQ_DATABASE_CONFIG', PROJECT_ROOT / 'config/database.yml')).expanduser().resolve()
-    environment = os.getenv('DATABASE_ENV', 'development')
+def load_database_config(*, environ=None, project_root=None):
+    if environ is None:
+        load_environment()
+    values = os.environ if environ is None else environ
+    root = PROJECT_ROOT if project_root is None else Path(project_root)
+    path = Path(values.get('RYPIQ_DATABASE_CONFIG', root / 'config/database.yml')).expanduser().resolve()
+    environment = values.get('DATABASE_ENV', 'development')
     try:
         with path.open(encoding='utf-8') as stream:
             settings = yaml.safe_load(stream)
     except (OSError, UnicodeError, yaml.YAMLError):
-        raise DatabaseConfigurationError('Cannot read database configuration; check the path and YAML syntax') from None
+        raise DatabaseConfigurationError('Cannot read database configuration; check path permissions and YAML syntax') from None
     if not isinstance(settings, dict):
         raise DatabaseConfigurationError('Invalid database configuration')
     if environment not in settings:
         raise DatabaseConfigurationError('Unknown database environment')
-    return validate_config(settings[environment])
+    return validate_config(settings[environment], environ=values)

@@ -16,14 +16,17 @@ def build_metadata(dimensions=768):
         sa.Column('name', sa.Text(), nullable=False),
         sa.Column('api_key', sa.Text(), nullable=False, unique=True),
         sa.Column('embedding_model', sa.Text(), nullable=False),
-        sa.Column('provision_type', sa.Text(), nullable=False),
+        sa.Column('embedding_provision_type', sa.Text(), nullable=False),
+        sa.Column('inference_provision_type', sa.Text(), nullable=False),
         sa.Column('embedding_size', sa.Integer(), nullable=False),
         sa.Column('inference_model', sa.Text(), nullable=True),
         sa.Column('data', JSONB(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
-        sa.CheckConstraint("provision_type IN ('local', 'openai', 'llama-server')",
-                           name='ck_applications_provider'),
+        sa.CheckConstraint("embedding_provision_type IN ('local', 'openai', 'llama-server')",
+                           name='ck_applications_embedding_provider'),
+        sa.CheckConstraint("inference_provision_type IN ('local', 'openai', 'llama-server')",
+                           name='ck_applications_inference_provider'),
         sa.CheckConstraint('embedding_size BETWEEN 1 AND 16000', name='ck_applications_size'),
     )
     sa.Table(
@@ -64,6 +67,24 @@ def build_metadata(dimensions=768):
         sa.CheckConstraint("provision_type IN ('local', 'openai', 'llama-server')", name='ck_embeddings_provider'),
     )
     sa.Index('ix_embeddings_metadata', embeddings.c.metadata, postgresql_using='gin')
+    jobs = sa.Table(
+        'document_processing_jobs', metadata,
+        sa.Column('id', UUID(as_uuid=True), primary_key=True),
+        sa.Column('document_id', UUID(as_uuid=True), sa.ForeignKey('public.documents.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('batch_size', sa.Integer(), nullable=False),
+        sa.Column('state', sa.Text(), nullable=False),
+        sa.Column('attempts', sa.Integer(), nullable=False),
+        sa.Column('claim_token', UUID(as_uuid=True)),
+        sa.Column('lease_expires_at', sa.DateTime(timezone=True)),
+        sa.Column('error', sa.Text()),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("state IN ('queued', 'running', 'succeeded', 'failed')", name='ck_processing_jobs_state'),
+        sa.CheckConstraint('batch_size > 0 AND attempts >= 0', name='ck_processing_jobs_counts'),
+    )
+    sa.Index('uq_processing_jobs_active_document', jobs.c.document_id, unique=True,
+             postgresql_where=jobs.c.state.in_(['queued', 'running']))
+    sa.Index('ix_processing_jobs_poll', jobs.c.state, jobs.c.updated_at)
     return metadata
 
 
@@ -115,6 +136,24 @@ def validate_table(connection, table):
         expected = {c['name']: c['sqltext'] for c in sa.inspect(connection).get_check_constraints(temporary.name)}
         actual = {c['name']: c['sqltext'] for c in inspector.get_check_constraints(table.name, schema='public')}
         incompatible |= expected != actual
+        # Queue uniqueness is a partial index, not a UniqueConstraint. Compare
+        # PostgreSQL-normalized predicates using the same temporary-table strategy.
+        actual_indexes = {item['name']: item for item in inspector.get_indexes(table.name, schema='public')}
+        for index in table.indexes:
+            if not index.unique:
+                continue
+            predicate = index.dialect_options['postgresql'].get('where')
+            if predicate is not None:
+                predicate = sa.sql.visitors.replacement_traverse(predicate, {}, lambda element:
+                    temporary.c[element.name] if isinstance(element, sa.Column) and element.table is table else None)
+            temporary_index = sa.Index('_validate_' + index.name,
+                *(temporary.c[column.name] for column in index.columns), unique=True, postgresql_where=predicate)
+            temporary_index.create(connection)
+            normalized = next(item for item in sa.inspect(connection).get_indexes(temporary.name)
+                              if item['name'] == temporary_index.name)
+            actual_index = actual_indexes.get(index.name, {})
+            incompatible |= any(actual_index.get(key) != normalized.get(key)
+                                for key in ('unique', 'column_names', 'dialect_options'))
         temporary.drop(connection)
     if incompatible:
         raise SchemaCompatibilityError(f'Incompatible schema for {table.name}; no tables were changed. '
@@ -127,6 +166,8 @@ def initialize_schema(engine, metadata):
         connection.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public')
         existing = set(sa.inspect(connection).get_table_names(schema='public'))
         missing = [table.name for table in metadata.sorted_tables if table.name not in existing]
+        from app.database.shared_provider_schema import build_metadata as shared_metadata
+        intermediate = shared_metadata()
         if 'documents' in existing:
             connection.exec_driver_sql('LOCK TABLE public.documents IN ACCESS EXCLUSIVE MODE')
             columns = {c['name']: c for c in sa.inspect(connection).get_columns('documents', schema='public')}
@@ -136,13 +177,16 @@ def initialize_schema(engine, metadata):
                 upgrade_legacy(connection, legacy_metadata(), columns)
             if 'embedding' in columns:
                 from app.database.upgrade import split_documents
-                split_documents(connection, metadata)
+                split_documents(connection, intermediate)
             elif 'name' not in columns:
                 from app.database.upgrade import add_document_names
-                add_document_names(connection, metadata)
+                add_document_names(connection, intermediate)
         if 'documents' in existing:
             from app.database.upgrade import add_document_status
-            add_document_status(connection, metadata)
+            add_document_status(connection, intermediate)
+        if sa.inspect(connection).has_table('applications', schema='public'):
+            from app.database.upgrade import split_application_providers
+            split_application_providers(connection, metadata)
         for table in metadata.sorted_tables:
             if table.name in sa.inspect(connection).get_table_names(schema='public'):
                 validate_table(connection, table)

@@ -68,12 +68,12 @@ class ProcessDocument:
                     source = Path(temporary) / ('source' + Path(document.filename).suffix.lower())
                     self.storage.get(document.storage_key, source)
                     with self.provider_scope(application) as provider:
-                        if provider.model_name != model_identity(application.embedding_model, application.provision_type):
+                        if provider.model_name != model_identity(application.embedding_model, application.embedding_provision_type):
                             raise ModelMismatchError('Embedding provider model must match the application')
                         embedded = EmbedTextFile(path=str(source), chunk_size=size, stride=stride,
                             embedding_provider=provider, batch_size=self.batch_size,
                             document_prefix=embedding_preprocessing(application.data,
-                                application.provision_type, application.embedding_size)[0]).execute()
+                                application.embedding_provision_type, application.embedding_size)[0]).execute()
                         chunks = build_embeddings(document.id, embedded, application, size, stride)
                 # Release owned model/temp resources before committing success.
                 return self.repository.replace_embeddings(document, chunks, application=application)

@@ -16,7 +16,7 @@ from app.database.postgresql_connection import create_database
 def owned(application, vector, document_id):
     return Embedding(document_id=document_id, content='content', embedding=vector,
                     embedding_model=application.embedding_model, embedding_size=application.embedding_size,
-                    provision_type=application.provision_type)
+                    provision_type=application.embedding_provision_type)
 
 
 def test_applications_and_mixed_size_search(backend):
@@ -81,7 +81,7 @@ def create_legacy(backend):
 
 def test_legacy_upgrade_groups_models_and_preserves_values(backend):
     originals = create_legacy(backend)
-    assert backend.migrate() == {'tables_created': ['applications', 'embeddings']}
+    assert backend.migrate() == {'tables_created': ['applications', 'document_processing_jobs', 'embeddings']}
     assert backend.migrate() == {'tables_created': []}
     applications = backend.applications().list()
     assert len(applications) == 3
@@ -117,7 +117,8 @@ def test_failed_upgrade_rolls_back_all_changes(backend):
     'ALTER TABLE embeddings DROP CONSTRAINT ck_embeddings_vector_size',
     'ALTER TABLE documents DROP CONSTRAINT documents_application_id_fkey',
     'ALTER TABLE applications DROP CONSTRAINT applications_api_key_key',
-    'ALTER TABLE applications DROP CONSTRAINT ck_applications_provider',
+    'ALTER TABLE applications DROP CONSTRAINT ck_applications_embedding_provider',
+    'ALTER TABLE applications DROP CONSTRAINT ck_applications_inference_provider',
 ])
 def test_constraint_drift_is_rejected(backend, change):
     backend.create_database()

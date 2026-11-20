@@ -16,7 +16,7 @@ from app.database.postgresql_connection import database_url
 def test_document_create_reports_actionable_database_errors(monkeypatch, capsys, state, expected, guidance):
     from app.database.errors import database_errors
 
-    def fail(args):
+    def fail(args, *, config=None):
         driver = Exception('secret password and document contents')
         driver.sqlstate = state
         with database_errors():
@@ -41,7 +41,7 @@ def test_password_characters_survive_url_construction():
 
 
 def test_driver_errors_are_not_printed_with_credentials(monkeypatch, capsys):
-    def fail(args):
+    def fail(args, *, config=None):
         raise sa.exc.OperationalError('secret SQL', {}, Exception('fake%@:secret'))
     monkeypatch.setattr(cli, 'execute', fail)
     monkeypatch.setattr('sys.argv', ['rypiq', 'db:migrate'])

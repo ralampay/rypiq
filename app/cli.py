@@ -5,10 +5,10 @@ from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.environment import load_environment
+from app.config import AppConfig, load_config
 from app.logging import configure_logging, log_operation, shutdown_logging
 
-from app.exceptions import RyPiqError, ExportError, ResourceCleanupError
+from app.exceptions import RyPiqError, ExportError, ResourceCleanupError, ValidationError
 from app.cli_parser import build_parser
 from app.diagnostics import ConfigurationReport, check_configuration
 from app.cli_handlers import execute
@@ -16,7 +16,8 @@ from app.cli_output import embedding_preview, validate_export_path, write_json_e
 
 
 def format_application_table(records: list[dict]) -> str:
-    columns = [('id', 'ID'), ('name', 'NAME'), ('provision_type', 'PROVISION TYPE'),
+    columns = [('id', 'ID'), ('name', 'NAME'), ('embedding_provision_type', 'EMBEDDING PROVIDER'),
+               ('inference_provision_type', 'INFERENCE PROVIDER'),
                ('embedding_model', 'EMBEDDING MODEL'), ('embedding_size', 'EMBEDDING SIZE'),
                ('inference_model', 'INFERENCE MODEL'), ('document_count', 'DOCUMENTS')]
     rows = [[heading for _, heading in columns]]
@@ -74,7 +75,7 @@ def processing_failure_context(failure: Exception) -> str:
     return message
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None, *, config: AppConfig | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.doctor and args.command is not None:
@@ -83,21 +84,36 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error('the following arguments are required: command')
     logging_initialized = False
     try:
-        load_environment()
+        if args.command != 'server':
+            config = load_config() if config is None else config
         if args.doctor:
-            report = check_configuration()
+            report = check_configuration(config=config)
             print(format_doctor_report(report))
             if report.incomplete_count:
                 raise SystemExit(1)
             return
-        configure_logging()
+        if args.command == 'server':
+            import uvicorn
+            if config is not None:
+                if args.reload:
+                    raise ValidationError('Injected server configuration cannot be combined with --reload')
+                from app import create_app
+                uvicorn.run(create_app(config=config), host=args.host, port=args.port)
+            else:
+                uvicorn.run('app:create_app', factory=True, host=args.host, port=args.port, reload=args.reload)
+            return
+        configure_logging(settings=config.require_logging())
         logging_initialized = True
+        if args.command == 'worker':
+            from app.worker import run_worker
+            run_worker(once=args.once, config=config)
+            return
         with log_operation('cli', command=args.command):
             exportable_output = args.command in ('documents:create', 'documents:process', 'documents:show', 'embeddings:show')
             destination = None
             if exportable_output and args.output:
                 destination = validate_export_path(args.output, source=args.path if args.command == 'documents:create' else None)
-            result = execute(args)
+            result = execute(args, config=config)
             if destination is not None:
                 try:
                     write_json_export(destination, result)

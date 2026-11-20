@@ -12,7 +12,7 @@ from app.providers.resolution import discovery_settings_for
 @pytest.mark.parametrize('provision_type', ['openai', 'llama-server'])
 def test_real_sdk_embeddings_chat_discovery_and_separate_endpoints(server, monkeypatch, provision_type):
     monkeypatch.setenv('TEST_HTTP_MODEL_KEY', 'test-only')
-    app = Application(name='test', provision_type=provision_type, embedding_model='remote-model',
+    app = Application(name='test', embedding_provision_type=provision_type, inference_provision_type=provision_type, embedding_model='remote-model',
                       inference_model='remote-model', embedding_size=2, data={'provider_config': {
                           'embedding': {'base_url': server['url'] + '/embedding/v1', 'api_key_env': 'TEST_HTTP_MODEL_KEY', 'dimensions': 2},
                           'inference': {'base_url': server['url'] + '/inference/v1', 'api_key_env': 'TEST_HTTP_MODEL_KEY'},
@@ -36,7 +36,7 @@ def test_real_sdk_embeddings_chat_discovery_and_separate_endpoints(server, monke
 @pytest.mark.parametrize('status', [401, 429, 500])
 def test_http_failures_are_safe_and_never_retried(server, status):
     server['status'] = status
-    app = Application(name='test', provision_type='llama-server', embedding_model='remote-model',
+    app = Application(name='test', embedding_provision_type='llama-server', inference_provision_type='llama-server', embedding_model='remote-model',
                       embedding_size=2, data={'provider_config': {'embedding': {'base_url': server['url'] + '/v1'}}})
     with open_provider(settings_for(app, 'embedding')) as provider:
         with pytest.raises(ProviderError) as caught:
@@ -47,7 +47,7 @@ def test_http_failures_are_safe_and_never_retried(server, status):
 
 def test_timeout_is_safe_and_not_retried(server):
     server['delay'] = 0.1
-    app = Application(name='test', provision_type='llama-server', embedding_model='remote-model',
+    app = Application(name='test', embedding_provision_type='llama-server', inference_provision_type='llama-server', embedding_model='remote-model',
                       data={'provider_config': {'embedding': {'base_url': server['url'] + '/v1', 'timeout': 0.01}}})
     with open_provider(settings_for(app, 'embedding')) as provider:
         with pytest.raises(ProviderError):

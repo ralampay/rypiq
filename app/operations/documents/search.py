@@ -49,11 +49,11 @@ def _search(
         from app.models.validation import validate_metadata
         validate_metadata(metadata_filters)
     validate_application(application)
-    if embedding_provider.model_name != model_identity(application.embedding_model, application.provision_type):
+    if embedding_provider.model_name != model_identity(application.embedding_model, application.embedding_provision_type):
         raise ModelMismatchError('Embedding provider model must match the application')
     # The provider accepts a list of strings.
     vectors = embedding_provider.embed([
-        embedding_preprocessing(application.data, application.provision_type, application.embedding_size)[1] + query.strip()
+        embedding_preprocessing(application.data, application.embedding_provision_type, application.embedding_size)[1] + query.strip()
     ])
 
     if (not isinstance(vectors, (list, tuple)) or len(vectors) != 1

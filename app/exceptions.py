@@ -195,3 +195,7 @@ class StoragePublicationError(PartialOperationError):
 
 class ExportError(PartialOperationError):
     """A record was loaded or persisted but JSON export failed."""
+
+
+class ProcessingBusyError(ConflictError):
+    """Another processor currently holds the document lock."""

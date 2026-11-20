@@ -14,7 +14,7 @@ def connection(monkeypatch):
     connected.execute.return_value.scalar_one.return_value = True
     inspector = Mock()
     metadata = build_metadata()
-    inspector.get_table_names.return_value = ['applications', 'documents', 'embeddings']
+    inspector.get_table_names.return_value = ['applications', 'documents', 'embeddings', 'document_processing_jobs']
     inspector.get_columns.side_effect = lambda name, **kwargs: [
         {'name': column.name} for column in metadata.tables['public.' + name].columns]
     monkeypatch.setattr(diagnostics.sa, 'inspect', Mock(return_value=inspector))

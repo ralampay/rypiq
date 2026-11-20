@@ -1,3 +1,4 @@
+from unittest.mock import ANY
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -29,7 +30,7 @@ def test_documents_list_json_dispatch(monkeypatch, capsys):
     identifier = uuid4()
     cli.main(['documents:list', '--application-id', str(identifier), '--output', 'json'])
     assert capsys.readouterr().out.strip() == '[]'
-    listing.assert_called_once_with(application_id=identifier)
+    listing.assert_called_once_with(application_id=identifier, config=ANY)
 
 
 @pytest.mark.parametrize('name', ['', ' \t\n ', None, 42])
@@ -125,7 +126,7 @@ def test_listing_failure_releases_database_and_prints_no_partial_results(monkeyp
     database.documents.return_value.list_summaries.side_effect = [
         [DocumentSummary(id=uuid4(), name='name', embedding_count=0)] * 100,
         RuntimeError('Cannot list documents')]
-    monkeypatch.setattr(application, 'get_database', lambda: database)
+    monkeypatch.setattr(application, 'get_database', lambda config=None: database)
     with pytest.raises(SystemExit):
         cli.main(['documents:list', '--application-id', str(uuid4())])
     assert capsys.readouterr().out == ''
@@ -141,7 +142,7 @@ def test_duplicate_configured_creation_does_not_construct_provider_or_storage(mo
     database.applications.return_value.get.return_value = Application(name='a', embedding_model='m')
     database.documents.return_value.name_exists.return_value = True
     provider, storage = Mock(), Mock()
-    monkeypatch.setattr(application, 'get_database', lambda: database)
+    monkeypatch.setattr(application, 'get_database', lambda config=None: database)
     monkeypatch.setattr(application, '_open_configured_provider', provider)
     monkeypatch.setattr('app.storage.factory.get_storage', storage)
     with pytest.raises(ValueError, match='already exists'):

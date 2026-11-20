@@ -24,13 +24,13 @@ def resources(monkeypatch, tmp_path, document_resources):
     repository = backend.documents.return_value
     repository.create.side_effect = lambda record: record
     repository.delete.return_value = True
-    monkeypatch.setattr(application, 'get_database', lambda: backend)
+    monkeypatch.setattr(application, 'get_database', lambda config=None: backend)
     provider = Mock(model_name='fake')
     provider.embed.side_effect = lambda texts: [[float(i) for i in range(8)] for text in texts]
     monkeypatch.setattr(application, 'get_embedding_provider', lambda **kwargs: provider)
     storage = Mock()
     storage.save.return_value = Mock(key='stored.txt', content_type='text/plain', checksum='checksum')
-    monkeypatch.setattr(app.storage.factory, 'get_storage', lambda: storage)
+    monkeypatch.setattr(app.storage.factory, 'get_storage', lambda config=None: storage)
     source = tmp_path / 'input.txt'
     source.write_text('abcdefghij')
     document_resources(repository, storage, source)

@@ -33,7 +33,7 @@ flowchart TD
 5. `app.cli` formats output: JSON to stdout (with an optional full export for `documents:create`, `documents:process`, `documents:show`, and `embeddings:show`), or a text table for `applications:list` and `documents:list` by default. It converts failures into sanitized, nonzero exits.
 
 `applications:list` defaults to a text table and accepts `--output text|json` as a
-format selector. Its handler projects IDs, names, saved provision type, embedding
+format selector. Its handler projects IDs, names, saved embedding and inference provider types, embedding
 model, embedding size, inference model, and document count for both formats from `application.enumerate_application_summaries()`, which owns one database context and
 calls `operations.applications.list.list_application_summaries()`. The operation reads
 100-record pages through `ApplicationRepository.list_summaries()` until exhausted.
@@ -157,6 +157,29 @@ individual modules under `chunkers/` and implement the shared chunk dictionary c
 For embedding alone, file/chunk validation occurs before constructing a model. Both configured embedding and the injected command share the same preparation/batching functions. There is one implementation of the embedding algorithm, even though resource construction happens at different boundaries.
 
 For repeated local operations, pass the same optional `model_session` to embedding, ingestion, search, and chat calls inside `with LocalModelSession() as models:`. The session owns cached model providers; the configured calls borrow them while continuing to own their database resources. See [local model sessions](PROVIDERS.md#reusing-local-models) for warmup, lifecycle, and concurrency rules. One-shot calls and CLI commands retain their existing behavior.
+
+### Application-backed chat
+
+`rypiq chat PROMPT --application-id UUID` delegates to `app.application.chat()`.
+This composition function loads the application and resolves embedding and
+inference settings from their independent provision types before opening providers. It owns the database and per-call
+provider scopes; an optional local model session retains ownership of cached models.
+
+`app.operations.inference.chat.Chat.execute()` validates the conversation, calls
+`SearchDocuments` for the final user message with a five-chunk limit, builds the
+RAG messages, and invokes the inference provider. Search retains application
+isolation and embedding compatibility checks. The operation returns `RagChatResult`,
+a `ChatResult` subclass with unique retrieved document sources in first-match order.
+The prompt and response share document indicators such as `[1]`, assigned by
+`build_chat_sources()`; the default prompt requests Markdown with inline citations.
+These domain values live in `app.models.chat`; providers still return plain `ChatResult`.
+The operation does not close injected resources, print output, or load configuration.
+
+The system prompt and pure builder live in
+[app/operations/inference/prompts.py](../app/operations/inference/prompts.py).
+See [prompt customization](PROVIDERS.md#rag-prompt-customization) for injection
+and future web service reuse. Chat has no standalone model selection; low-level
+providers still support plain inference.
 
 ### Injected Python path
 
@@ -308,3 +331,42 @@ normalized model lists. No inference model is required for endpoint discovery.
 The legacy `create_provider()`/`open_provider()` path still returns combined remote
 facades. See [provider namespaces and compatibility](PROVIDERS.md#code-organization-and-imports)
 for canonical contract imports and the migration path.
+
+
+## Updating application provider configuration
+
+`applications:update` reads the existing application, replaces explicitly supplied
+fields, and delegates to `app.application.update_application()`. That boundary
+resolves aliases independently by capability, normalizes changed local model paths,
+and saves the validated record through `ApplicationService` and the repository.
+Provider selection does not implicitly change either model or JSON options.
+`--data` replaces the full data object; callers retain unrelated settings explicitly.
+See [update examples](PROVIDERS.md#updating-provider-configuration) and
+[schema upgrade](DATABASE.md#independent-provider-upgrade).
+
+## HTTP and durable worker entrypoints
+
+`rypiq server` starts Uvicorn in factory mode (`app:create_app`). The factory loads
+service settings, registers `app.routes`, and configures logging for its lifetime.
+Controllers under `app/controllers` validate Pydantic schemas and call existing
+configured Python entrypoints. The header dependency and early request boundary
+require `X-App-Secret-Key` before service work.
+
+HTTP document upload calls `app.application.store_document()` → `CreateDocument`.
+Submission calls `enqueue_document()` → the PostgreSQL processing-job repository.
+`rypiq worker` → `RunProcessingJob` → `ProcessDocument` uses a claim-bound document
+repository. The repository checks the worker token before writes and commits job
+success in the same transaction as embedding replacement. Providers, heartbeat
+threads, and database pools are owned by the composition boundaries.
+
+See [HTTP API](API.md) for routes, local commands, authentication, and recovery rules.
+
+## Configuration flow
+
+API factory / CLI invocation / worker startup → `load_config()` → immutable
+`AppConfig` → configured application functions and factories → specific operation
+dependencies. Explicit `config=` skips reloading. API controllers borrow the instance
+through `get_config`; worker polling reuses its startup instance. Database/storage
+factories accept typed sections and legacy dictionaries, while provider factories
+receive the snapshot's credential mapping. Core operations retain their injected
+repositories and providers. See [configuration injection](CONFIGURATION.md).

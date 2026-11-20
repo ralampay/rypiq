@@ -60,14 +60,14 @@ def seed_current_legacy(backend):
     with backend.engine.begin() as connection:
         connection.exec_driver_sql('CREATE EXTENSION vector')
         metadata.create_all(connection)
-        connection.execute(metadata.tables['public.applications'].insert().values(**asdict(app)))
+        connection.execute(metadata.tables['public.applications'].insert().values(**shared_application_values(app)))
         connection.execute(metadata.tables['public.documents'].insert(), rows)
     return rows
 
 
 def test_current_legacy_upgrade_preserves_ids_and_splits_ambiguous_groups(backend):
     rows = seed_current_legacy(backend)
-    assert backend.migrate() == {'tables_created': ['embeddings']}
+    assert backend.migrate() == {'tables_created': ['document_processing_jobs', 'embeddings']}
     assert backend.migrate() == {'tables_created': []}
     parents = backend.documents().list()
     assert len(parents) == 4
@@ -151,10 +151,17 @@ def test_upgrade_never_merges_different_applications(backend):
     another = Application(name='other', embedding_model='m', embedding_size=2)
     duplicate = dict(rows[0], id=uuid4(), application_id=another.id)
     with backend.engine.begin() as connection:
-        connection.execute(metadata.tables['public.applications'].insert().values(**asdict(another)))
+        connection.execute(metadata.tables['public.applications'].insert().values(**shared_application_values(another)))
         connection.execute(metadata.tables['public.documents'].insert().values(**duplicate))
     backend.migrate()
     original = backend.embeddings().get(rows[0]['id'])
     migrated = backend.embeddings().get(duplicate['id'])
     assert original.document_id != migrated.document_id
     assert backend.documents().get(migrated.document_id).application_id == another.id
+
+
+def shared_application_values(application):
+    values = asdict(application)
+    values['provision_type'] = values.pop('embedding_provision_type')
+    values.pop('inference_provision_type')
+    return values

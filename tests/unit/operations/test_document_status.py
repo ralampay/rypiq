@@ -1,3 +1,4 @@
+from unittest.mock import ANY
 from uuid import uuid4
 from unittest.mock import Mock
 
@@ -134,7 +135,7 @@ def test_process_cli_dispatch_and_export(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(application, 'process_document', process)
     output = tmp_path / 'result.json'
     cli.main(['documents:process', '--document-id', str(document.id), '--output', str(output)])
-    process.assert_called_once_with(document_id=document.id, batch_size=1)
+    process.assert_called_once_with(document_id=document.id, batch_size=1, config=ANY)
     assert json.loads(capsys.readouterr().out) == json.loads(output.read_text())
     assert json.loads(output.read_text())['status'] == 'done'
 
