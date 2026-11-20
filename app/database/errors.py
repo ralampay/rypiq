@@ -19,6 +19,17 @@ def _translate(error: sa.exc.SQLAlchemyError, *, application_id: UUID | None,
     original = getattr(error, 'orig', None)
     state = getattr(original, 'sqlstate', None)
     constraint = getattr(getattr(original, 'diag', None), 'constraint_name', None)
+    # Classify using stable PostgreSQL codes, never driver messages or SQL values.
+    if state in ('42703', '42P01'):
+        missing = 'column' if state == '42703' else 'table'
+        return DatabaseError(
+            f'Database schema is out of date or incompatible: a required {missing} is missing. '
+            'Run rypiq --doctor to identify missing schema objects, then rypiq db:migrate '
+            'to apply supported upgrades. Incompatible schemas require a deliberate schema change.')
+    if state == '42501':
+        return DatabaseError(
+            'Database permission denied; check privileges for the configured database user '
+            'on the selected database, schema, and tables.')
     if isinstance(error, sa.exc.IntegrityError):
         if state == '23505' and constraint == 'uq_documents_application_name':
             return DuplicateDocumentNameError(application_id=application_id, name=name)

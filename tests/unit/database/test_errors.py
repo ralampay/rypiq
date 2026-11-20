@@ -8,6 +8,32 @@ from app.database.backends.postgresql import PostgreSQLBackend
 from app.database.postgresql_connection import database_url
 
 
+@pytest.mark.parametrize('state, expected, guidance', [
+    ('42703', 'required column is missing', 'rypiq db:migrate'),
+    ('42P01', 'required table is missing', 'rypiq db:migrate'),
+    ('42501', 'permission denied', 'configured database user'),
+])
+def test_document_create_reports_actionable_database_errors(monkeypatch, capsys, state, expected, guidance):
+    from app.database.errors import database_errors
+
+    def fail(args):
+        driver = Exception('secret password and document contents')
+        driver.sqlstate = state
+        with database_errors():
+            raise sa.exc.ProgrammingError('secret SQL', {'secret': 'value'}, driver)
+
+    monkeypatch.setattr(cli, 'execute', fail)
+    with pytest.raises(SystemExit) as caught:
+        cli.main(['documents:create', '--name', 'MSCS Program of Study', 'example.pdf',
+                  '--application-id', '3fdf113f-00ba-4e16-b9a6-960dd9f8a421'])
+    assert caught.value.code == 2
+    output = capsys.readouterr()
+    assert output.out == ''
+    assert expected in output.err
+    assert guidance in output.err
+    assert 'secret' not in output.err
+
+
 def test_password_characters_survive_url_construction():
     secret = 'fake%@:secret'
     url = database_url(dict(user='user', password=secret, host='localhost', database='example'))

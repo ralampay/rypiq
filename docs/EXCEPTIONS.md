@@ -80,6 +80,10 @@ string formatting; use `resource_id` instead of parsing those arguments.
 Database adapters now translate SQLAlchemy exceptions. Applications that previously
 caught SQLAlchemy types around RyPiq calls must catch `DatabaseError` or a subclass
 instead. Direct use of a SQLAlchemy engine still raises SQLAlchemy exceptions.
+Missing-table and missing-column failures include guidance to run `rypiq --doctor`
+and `rypiq db:migrate`; permission failures identify database privileges as the
+cause. These remain `DatabaseError` exceptions and never expose SQL or raw driver
+messages. Migration applies supported upgrades and rejects incompatible schemas.
 Malformed configuration that previously leaked incidental `TypeError`, `KeyError`,
 YAML errors, or file-reading failures now raises the corresponding configuration error.
 
