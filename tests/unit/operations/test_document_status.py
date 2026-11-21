@@ -152,3 +152,54 @@ def test_unexpected_cli_processing_failure_reports_retry_id_safely(monkeypatch, 
     message = capsys.readouterr().err
     assert 'private plugin diagnostic' not in message
     assert f'Document ID: {identifier}' in message
+
+
+def test_processing_releases_provider_and_temporary_file_before_commit(tmp_path, document_resources):
+    from contextlib import contextmanager
+    from app.models.application import Application
+    from app.operations.documents.create import CreateDocument
+    from app.operations.documents.process import ProcessDocument
+
+    source = tmp_path / 'source.txt'
+    source.write_text('hello')
+    repository, storage = document_resources(source=source)
+    application = Application(name='test', embedding_model='model', embedding_size=2)
+    created = CreateDocument(
+        name='Report', path=str(source), application=application,
+        repository=repository, storage=storage,
+    ).execute()
+    provider = Mock(model_name='model')
+    provider.embed.return_value = [[1., 0.]]
+    events, destinations = [], []
+
+    def get(key, destination):
+        destinations.append(destination)
+        destination.write_text('hello')
+
+    @contextmanager
+    def scope(application):
+        try:
+            yield provider
+        finally:
+            events.append('provider released')
+
+    replace_embeddings = repository.replace_embeddings.side_effect
+
+    def commit(document, chunks, *, application):
+        assert events == ['provider released']
+        assert destinations and all(not path.parent.exists() for path in destinations)
+        events.append('commit')
+        return replace_embeddings(document, chunks, application=application)
+
+    storage.get.side_effect = get
+    repository.replace_embeddings.side_effect = commit
+    result = ProcessDocument(
+        document_id=created.document.id, repository=repository, storage=storage,
+        application=application, provider_scope=scope,
+    ).execute()
+
+    assert events == ['provider released', 'commit']
+    assert result.document.status == 'done'
+    assert [chunk.content for chunk in result.embeddings] == ['hello']
+    repository.close.assert_not_called()
+    storage.close.assert_not_called()

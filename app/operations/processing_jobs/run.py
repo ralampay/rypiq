@@ -9,10 +9,16 @@ from app.models.processing_job import ProcessingJob
 
 
 class RunProcessingJob:
-    def __init__(self, *, repository: ProcessingJobRepository,
-                 process: Callable[[ProcessingJob], object],
-                 heartbeat: Callable[[ProcessingJob], AbstractContextManager]) -> None:
-        self.repository, self.process, self.heartbeat = repository, process, heartbeat
+    def __init__(
+        self,
+        *,
+        repository: ProcessingJobRepository,
+        process: Callable[[ProcessingJob], object],
+        heartbeat: Callable[[ProcessingJob], AbstractContextManager],
+    ) -> None:
+        self.repository = repository
+        self.process = process
+        self.heartbeat = heartbeat
 
     def execute(self) -> bool:
         job = self.repository.claim()
@@ -25,7 +31,12 @@ class RunProcessingJob:
                 self.repository.release(job)
             except Exception as failure:
                 # Never persist arbitrary exception messages or source contents.
-                self.repository.fail(job, message='Document processing failed; check configuration and retry.')
-                get_logger('worker').error('processing_failed', job_id=str(job.id),
-                                           error_type=type(failure).__name__)
+                self.repository.fail(
+                    job, message='Document processing failed; check configuration and retry.',
+                )
+                get_logger('worker').error(
+                    'processing_failed',
+                    job_id=str(job.id),
+                    error_type=type(failure).__name__,
+                )
         return True

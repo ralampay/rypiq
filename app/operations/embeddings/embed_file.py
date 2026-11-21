@@ -48,9 +48,16 @@ def embed_chunks(document: dict, provider: EmbeddingProvider, batch_size: int,
 
 
 class EmbedTextFile:
-    def __init__(self, *, path: str, chunk_size: int, stride: int,
-                 embedding_provider: EmbeddingProvider, batch_size: int = 1,
-                 document_prefix: str = DEFAULT_PREFIX) -> None:
+    def __init__(
+        self,
+        *,
+        path: str,
+        chunk_size: int,
+        stride: int,
+        embedding_provider: EmbeddingProvider,
+        batch_size: int = 1,
+        document_prefix: str = DEFAULT_PREFIX,
+    ) -> None:
         self.document_prefix = document_prefix
         self.path = path
         self.chunk_size = chunk_size

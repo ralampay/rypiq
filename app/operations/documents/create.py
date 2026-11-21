@@ -5,14 +5,22 @@ from app.database.repositories.document import DocumentRepository
 from app.models.application import Application, validate_application
 from app.models.document import Document, DocumentDetails
 from app.operations.documents.name import prepare_document_name
-from app.operations.documents.process import record_failure
+from app.operations.documents.failure import record_failure
 from app.operations.storage.save import save_file
 from app.storage.base import ObjectStorage
 
 
 class CreateDocument:
-    def __init__(self, *, name: str, path: str, application: Application,
-                 repository: DocumentRepository, storage: ObjectStorage, source_name: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        name: str,
+        path: str,
+        application: Application,
+        repository: DocumentRepository,
+        storage: ObjectStorage,
+        source_name: str | None = None,
+    ) -> None:
         self.name = name
         self.path = path
         self.application = application
@@ -22,13 +30,21 @@ class CreateDocument:
 
     def execute(self) -> DocumentDetails:
         validate_application(self.application)
-        name = prepare_document_name(name=self.name, application_id=self.application.id, repository=self.repository)
+        name = prepare_document_name(
+            name=self.name,
+            application_id=self.application.id,
+            repository=self.repository,
+        )
         source = Path(self.path)
         # Check readability before creating the durable record.
         with source.open('rb'):
             pass
-        document = self.repository.create(Document(name=name, application_id=self.application.id,
-            filename=source.name, source=str(source) if self.source_name is None else self.source_name))
+        document = self.repository.create(Document(
+            name=name,
+            application_id=self.application.id,
+            filename=source.name,
+            source=str(source) if self.source_name is None else self.source_name,
+        ))
         try:
             stored = save_file(path=source, storage=self.storage)
             document.storage_key = stored.key

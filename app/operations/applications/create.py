@@ -4,7 +4,12 @@ from app.services.application import ApplicationService
 
 
 class CreateApplication:
-    def __init__(self, *, application: Application, repository: ApplicationRepository) -> None:
+    def __init__(
+        self,
+        *,
+        application: Application,
+        repository: ApplicationRepository,
+    ) -> None:
         self.application = application
         self.repository = repository
 

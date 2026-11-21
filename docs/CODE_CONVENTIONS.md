@@ -65,7 +65,10 @@ A command may delegate to an existing function to avoid duplicating behavior. If
 ### Placement and naming
 
 - Keep business operations under `app/operations/`, using `snake_case` modules and `PascalCase` classes with verb-based names.
-- Group operations into domain packages: `applications`, `documents`, `embeddings`, `processing`, `storage`, and `inference`. Place each action in a descriptive module, such as `documents/ingest.py`; keep closely related helpers with their action.
+- Group operations into domain packages: `applications`, `documents`, `embeddings`, `processing`, `storage`, `inference`, and `processing_jobs`. Place each action in a descriptive module, such as `documents/ingest.py`; keep closely related helpers with their action.
+- Shared helpers belong in the domain that owns their behavior: embedding-record construction in `embeddings/build.py`, and document failure recording in `documents/failure.py`. Avoid importing another workflow merely to reuse a helper. Original helper imports remain available for compatibility.
+- Keep command signatures and multi-argument dependency calls readable, with one named input per line when they span lines. Let `execute()` show workflow ordering; extract cohesive private steps when nesting obscures resource cleanup or commit boundaries. Keep execution state local and retain context managers around the resources they own.
+- `tests/unit/operations/test_structure.py` guards domain placement, entrypoint independence, explicit constructor inputs, and the single public `execute()` method. Package initializers stay free of eager operation exports.
 - Import directly from action modules. Package `__init__.py` files do not eagerly re-export operations. Add new actions to their owning domain rather than extending a flat catch-all module.
 - Keep configured Python entrypoints, including `embed_text_file()` and `ingest_document()`, in `app.application`. Operations must not import that composition layer. See [namespace migration](EXECUTION_PATHS.md#operation-namespaces-and-import-migration) for the import map.
 - Infrastructure command facades can stay in their subsystem. The existing `DatabaseCommands` exposes `create()`, `migrate()`, `drop()`, and `reset()` for explicit CLI dispatch. It is not a single-use business command and does not need an `execute()` retrofit.
